@@ -97,6 +97,21 @@ setzen (z. B. 900000 für 60–90 Min. Tokens). Für lange Streams über ein Gat
 **Einschränkungen:** SSO-Profile unterstützen keinen Budget-Killer-Pool, keine Budget-Anzeige und kein Key-Kopieren.
 Modell-Laden und Verbindungstest verwenden das Access-Token.
 
+## Claude for Microsoft 365
+
+Dieselben Profile können Claude for Excel, Word und PowerPoint bedienen (Outlook optional). Das Office-Add-in kann
+`keyzapper-helper` nicht aufrufen; es holt seine Konfiguration mit dem Microsoft-Entra-Token des Benutzers von einem
+HTTPS-Bootstrap-Endpunkt, wie Anthropics Drittanbieter-Deployment es vorsieht. KeyZapper liefert diesen Endpunkt als
+separaten Dienst `keyzapper-office-bootstrap` (`desktop/office-bootstrap`): Er prüft das Entra-Token (Signatur, Issuer,
+Audience, Tenant, `oid`), ordnet den Benutzer einem freigegebenen Profil zu und antwortet mit Gateway-URL, einem
+kurzlebigen Gateway-Token (LiteLLM Virtual Key), Inference-Headern und den Remote-MCP-Servern des Profils.
+
+Office ist pro Profil aus, bis ein Administrator es im Profil-Editor freigibt (*Claude for Microsoft 365*: erlaubte
+Office-Anwendungen, Entra-Objekt-IDs, Inference-Header, MCP-Server, Gültigkeit). *Backup › Office-Bootstrap-Konfiguration
+exportieren …* schreibt die Deployment-Datei für den Dienst; sie enthält keine Keys. Keys vergibt der Dienst selbst.
+Einrichtung, Serverkonfiguration, Manifest-Werte (`entra_sso=1`, `bootstrap_url`) und Fehlersuche:
+[docs/office-bootstrap.md](docs/office-bootstrap.md) (englisch).
+
 ## So funktioniert es
 
 **Einrichtung (einmalig):** Der Key geht per stdin an den Helper und landet nur in der Key-Datei `keys.json`. Ins Projekt schreibt die App nur Verweise.

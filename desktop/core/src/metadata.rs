@@ -74,15 +74,22 @@ impl MetadataStore {
 pub fn restoring_dropped_fields(state: AppState, mirror: &AppState) -> AppState {
     let mut result = state;
     for profile in result.profiles.iter_mut() {
+        let saved = mirror.profile(&profile.id).filter(|s| s.endpoint == profile.endpoint);
+        if profile.office.is_none() {
+            profile.office = saved.and_then(|s| s.office.clone());
+        }
         if profile.opus_model.is_some() || profile.sonnet_model.is_some() || profile.haiku_model.is_some() || profile.environment.is_some() {
             continue;
         }
-        if let Some(saved) = mirror.profile(&profile.id).filter(|s| s.endpoint == profile.endpoint) {
+        if let Some(saved) = saved {
             profile.opus_model = saved.opus_model.clone();
             profile.sonnet_model = saved.sonnet_model.clone();
             profile.haiku_model = saved.haiku_model.clone();
             profile.environment = saved.environment.clone();
         }
+    }
+    if result.office_deployment.is_none() {
+        result.office_deployment = mirror.office_deployment.clone();
     }
     if result.global_binding.is_none() {
         if let Some(global) = mirror.global_binding.as_ref().filter(|g| result.profile(&g.profile_id).is_some()) {

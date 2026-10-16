@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "src-tauri"]
+members = ["core", "src-tauri", "office-bootstrap"]
 resolver = "2"
 
 # PBKDF2 with 600 000 rounds is unusably slow without optimisation, also in debug builds and tests.

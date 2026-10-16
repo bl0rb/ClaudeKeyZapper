@@ -6,7 +6,7 @@ mod model;
 use keyzapper_core::errors::Error;
 use keyzapper_core::gateway::CheckResult;
 use keyzapper_core::{agents, backup, clipboard, gateway, l, legacy_keychain, oidc, update};
-use model::{McpServerInput, Model, ProfileInput, View};
+use model::{McpServerInput, Model, OfficeDeploymentInput, ProfileInput, View};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -535,6 +535,46 @@ async fn export_backup(app: AppHandle, password: String) -> bool {
 }
 
 #[tauri::command]
+async fn save_office_deployment(app: AppHandle, input: OfficeDeploymentInput) -> (bool, View) {
+    blocking(move || {
+        let ok = with_model(&app, |m| m.save_office_deployment(input));
+        (ok, view(&app))
+    })
+    .await
+}
+
+/// Writes the deployment file for `keyzapper-office-bootstrap`: profiles released for Office, their remote MCP
+/// servers and user assignments. Never keys or tokens.
+#[tauri::command]
+async fn export_office_config(app: AppHandle) -> bool {
+    blocking(move || {
+        let json = match with_model(&app, |m| m.office_deployment_json()) {
+            Ok(json) => json,
+            Err(e) => {
+                with_model(&app, |m| m.error = Some(e));
+                return false;
+            }
+        };
+        let name = format!("keyzapper-office-deployment-{}.json", keyzapper_core::time::today());
+        let Some(target) = app.dialog().file().add_filter("JSON", &["json"]).set_file_name(&name).blocking_save_file().and_then(|p| p.into_path().ok()) else {
+            return false;
+        };
+        let result = keyzapper_core::paths::write_atomic(&target, json.as_bytes(), true).map_err(|e| e.to_string());
+        with_model(&app, |m| match result {
+            Ok(()) => {
+                m.notice = Some(l!("Office-Bootstrap-Konfiguration gespeichert (ohne Keys): %@", target.display()));
+                true
+            }
+            Err(e) => {
+                m.error = Some(e);
+                false
+            }
+        })
+    })
+    .await
+}
+
+#[tauri::command]
 async fn pick_backup_file(app: AppHandle) -> Option<String> {
     blocking(move || {
         app.dialog()
@@ -682,6 +722,8 @@ fn main() {
             discard_backup,
             migrate_keychain,
             export_backup,
+            save_office_deployment,
+            export_office_config,
             pick_backup_file,
             import_backup,
             check_for_updates,

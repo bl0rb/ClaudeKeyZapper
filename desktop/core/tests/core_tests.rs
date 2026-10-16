@@ -727,3 +727,85 @@ fn mcp_files_created_for_servers_vanish_on_revert_and_tracked_mcp_json_blocks() 
     assert!(git(&repo, &["add", ".mcp.json"]).is_some() && git(&repo, &["commit", "-qm", "mcp"]).is_some());
     assert!(matches!(mcp::apply(&repo, &[server], &BTreeMap::new(), None), Err(Error::SettingsConflicts(_))));
 }
+
+// MARK: Claude for Microsoft 365
+
+fn office_profile() -> Profile {
+    use keyzapper_core::office::OfficeSettings;
+    let mut p = sample();
+    p.office = Some(OfficeSettings { enabled: true, allowed_users: vec!["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".into()], ..OfficeSettings::default() });
+    p
+}
+
+/// Office settings travel in metadata and backups like any profile field; profiles without them are byte-for-byte
+/// what KeyZapper wrote before, and an older app that drops the field gets it back from the mirror.
+#[test]
+fn office_settings_round_trip_and_stay_backward_compatible() {
+    let dir = temp_dir("office-meta");
+    let store = MetadataStore::new(Path::new(&dir).join("state.json"), true);
+    let state = AppState { profiles: vec![office_profile(), other()], ..AppState::default() };
+    store.save(&state).unwrap();
+    let text = std::fs::read_to_string(Path::new(&dir).join("state.json")).unwrap();
+    assert!(text.contains("\"office\"") && text.contains("\"allowedUsers\""));
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.profiles, state.profiles);
+    assert!(loaded.profiles[0].is_office_enabled() && !loaded.profiles[1].is_office_enabled());
+    assert!(serde_json::to_value(&loaded.profiles[1]).unwrap().get("office").is_none());
+
+    // An older app rewrites state.json without `office`; the full mirror restores it on the next load.
+    let mut downgraded: Value = serde_json::from_str(&text).unwrap();
+    downgraded["profiles"][0].as_object_mut().unwrap().remove("office");
+    std::fs::write(Path::new(&dir).join("state.json"), downgraded.to_string()).unwrap();
+    assert_eq!(store.load().unwrap().profiles[0].office, office_profile().office);
+
+    // The helper still answers with the key only; Office settings change nothing for Claude Code.
+    let keys = KeyStore { file: Path::new(&dir).join("keys.json") };
+    keys.write(ALPHA, "sk-alpha").unwrap();
+    let h = HelperCommand::new(store, keys, ManagedConfig::default());
+    let out = h.run(&args("credential", ALPHA), String::new);
+    assert_eq!((out.exit_code, out.stdout.as_str()), (ExitCode::Ok, "sk-alpha"));
+
+    let payload = BackupPayload { state: AppState { profiles: vec![office_profile()], ..AppState::default() }, ..payload() };
+    let data = backup::seal(&payload, "correct horse battery", 100_000).unwrap();
+    assert_eq!(backup::open(&data, "correct horse battery").unwrap(), payload);
+    let legacy: BackupPayload = serde_json::from_value(json!({"createdAt": "2026-01-01T00:00:00Z", "state": {"schemaVersion": 1, "profiles": [{"id": ALPHA, "name": "A", "endpoint": "https://x.example"}]}})).unwrap();
+    assert!(legacy.state.profiles[0].office.is_none() && legacy.state.office_deployment.is_none());
+}
+
+#[test]
+fn litellm_virtual_key_provider_generates_short_lived_keys() {
+    use keyzapper_core::office::{CredentialError, EntraIdentity, LiteLlmVirtualKeyProvider, OfficeCredentialProvider};
+    let identity = EntraIdentity { oid: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".into(), tenant_id: "t".into(), scopes: vec![] };
+    let (endpoint, server) = one_shot_server("200 OK", r#"{"key":"sk-virtual-123","expires":"2026-10-16T12:00:00Z"}"#);
+    let mut profile = office_profile();
+    profile.endpoint = format!("{endpoint}/");
+    let provider = LiteLlmVirtualKeyProvider::new("sk-management".into());
+    let before = keyzapper_core::oidc::unix_now();
+    let credential = provider.credential_for(&profile, &identity, 300).unwrap();
+    assert_eq!(credential.token, "sk-virtual-123");
+    assert!(credential.expires_at.unwrap() >= before + 300);
+    let request = server.join().unwrap();
+    let lower = request.to_lowercase();
+    assert!(lower.starts_with("post /key/generate http/1.1"), "{request}");
+    assert!(lower.contains("authorization: bearer sk-management"));
+    let body: Value = serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(body["duration"], "300s");
+    assert_eq!(body["models"], json!(["claude-alpha", "team-opus"]));
+    assert_eq!(body["metadata"]["keyzapper_profile"], ALPHA);
+    assert_eq!(body["metadata"]["keyzapper_source"], "office");
+    assert!(!body.to_string().contains("eeeeeeeeeeee"), "oid must not reach the gateway in clear text");
+    assert!(!format!("{credential:?}").contains("sk-virtual"));
+
+    let (endpoint, server) = one_shot_server("401 Unauthorized", r#"{"error":"bad key"}"#);
+    profile.endpoint = endpoint;
+    let error = provider.credential_for(&profile, &identity, 300).err().unwrap();
+    server.join().unwrap();
+    assert!(matches!(error, CredentialError::NotConfigured(_)), "{error}");
+    assert!(!error.to_string().contains("sk-"));
+
+    let (endpoint, server) = one_shot_server("500 Internal Server Error", "{}");
+    profile.endpoint = endpoint;
+    let error = provider.credential_for(&profile, &identity, 300).err().unwrap();
+    server.join().unwrap();
+    assert!(matches!(error, CredentialError::Unavailable(_)), "{error}");
+}

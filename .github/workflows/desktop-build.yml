@@ -36,7 +36,7 @@ jobs:
         run: python3 scripts/l10n_check.py
 
       - name: Test core
-        run: cargo test -p keyzapper-core
+        run: cargo test -p keyzapper-core -p keyzapper-office-bootstrap
 
       - name: Build installer
         env:
