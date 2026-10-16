@@ -9,6 +9,7 @@ use keyzapper_core::keys::{masked_hint, KeyStore};
 use keyzapper_core::managed::{host_of, is_secure_endpoint, ManagedConfig};
 use keyzapper_core::metadata::MetadataStore;
 use keyzapper_core::models::{new_id, parse_id, AppState, AuthType, McpServer, McpTransport, OidcTokenType, Profile, WorkspaceBinding};
+use keyzapper_core::office::{self, GatewayAuthHeader, OfficeDeployment, OfficeDeploymentSettings, OfficeHost, OfficeSettings};
 use keyzapper_core::paths::{abbreviate_home, folder_name};
 use keyzapper_core::settings::{self, BindingHealth, BindingStatus, SettingsBinder};
 use keyzapper_core::update::ReleaseInfo;
@@ -75,6 +76,37 @@ pub struct ProfileInput {
     pub oidc_client_id: String,
     pub oidc_scope: String,
     pub oidc_token_type: OidcTokenType,
+    /// Claude for Microsoft 365 section; absent when the editor did not show it (settings are kept as they are).
+    #[serde(default)]
+    pub office: Option<OfficeInput>,
+}
+
+/// Editor input of the Claude for Microsoft 365 section of a profile.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeInput {
+    pub enabled: bool,
+    /// `excel`, `word`, `powerpoint`, `outlook`.
+    pub allowed_hosts: Vec<String>,
+    /// One Entra object ID per line.
+    pub users_text: String,
+    /// `Name: value` lines.
+    pub headers_text: String,
+    pub mcp_server_ids: Vec<String>,
+    /// Lifetime of a bootstrap response in minutes; empty for the default.
+    pub ttl_minutes: String,
+    /// `x-api-key` (default) or `authorization`.
+    #[serde(default)]
+    pub gateway_auth_header: String,
+}
+
+/// Tenant, audience and bootstrap URL for the Office export.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeDeploymentInput {
+    pub tenant_id: String,
+    pub audience: String,
+    pub bootstrap_url: String,
 }
 
 /// Editor input for a new or changed MCP server.
@@ -317,7 +349,90 @@ impl Model {
                 profile.oidc_token_type = input.oidc_token_type;
             }
         }
+        if let Some(office) = input.office {
+            // The Office release is a local decision, also for IT-defined profiles.
+            match self.office_settings(office) {
+                Some(settings) => profile.office = settings,
+                None => return false,
+            }
+        }
         self.save_profile(profile, (!sso).then_some(input.key))
+    }
+
+    /// Editor section → settings; `Some(None)` when nothing is configured. Reports the first problem via `error`.
+    fn office_settings(&mut self, input: OfficeInput) -> Option<Option<OfficeSettings>> {
+        let (users, invalid_users) = office::parse_user_ids(&input.users_text);
+        if let Some(line) = invalid_users.first() {
+            self.error = Some(l!("Keine gültige Entra-Objekt-ID (GUID): %@", line));
+            return None;
+        }
+        let (headers, invalid_headers) = McpServer::parse_pairs(&input.headers_text, ':');
+        if let Some(line) = invalid_headers.first() {
+            self.error = Some(l!("Ungültig oder nicht erlaubt: %@", line));
+            return None;
+        }
+        if let Some(name) = headers.keys().find(|n| !office::is_valid_inference_header_name(n)) {
+            self.error = Some(l!("Der Header „%@“ ist reserviert und darf nicht als Inference-Header gesetzt werden.", name));
+            return None;
+        }
+        let ttl = input.ttl_minutes.trim();
+        let bootstrap_ttl_seconds = if ttl.is_empty() {
+            None
+        } else {
+            match ttl.parse::<u64>().ok().map(|m| m * 60).filter(|s| (office::MIN_TTL_SECONDS..=office::MAX_TTL_SECONDS).contains(s)) {
+                Some(seconds) if seconds == office::DEFAULT_TTL_SECONDS => None,
+                Some(seconds) => Some(seconds),
+                None => {
+                    self.error = Some(l!("Die Gültigkeit muss zwischen %@ und %@ Minuten liegen.", office::MIN_TTL_SECONDS / 60, office::MAX_TTL_SECONDS / 60));
+                    return None;
+                }
+            }
+        };
+        let Some(gateway_auth_header) = GatewayAuthHeader::from_name(&input.gateway_auth_header) else {
+            self.error = Some(l!("Ungültig oder nicht erlaubt: %@", input.gateway_auth_header));
+            return None;
+        };
+        let mut allowed_hosts: Vec<OfficeHost> = input.allowed_hosts.iter().map(|h| OfficeHost::from_name(h)).filter(OfficeHost::is_known).collect();
+        allowed_hosts.sort();
+        allowed_hosts.dedup();
+        let settings = OfficeSettings {
+            enabled: input.enabled,
+            allowed_hosts,
+            allowed_users: users,
+            inference_headers: headers,
+            mcp_server_ids: input.mcp_server_ids.iter().filter_map(|id| parse_id(id)).filter(|id| self.state.mcp_server(id).is_some()).collect(),
+            bootstrap_ttl_seconds,
+            gateway_auth_header,
+            ..OfficeSettings::default()
+        }
+        .normalized();
+        Some((!settings.is_empty()).then_some(settings))
+    }
+
+    /// Tenant, audience and bootstrap URL used by the Office export (and shown as manifest help).
+    pub fn save_office_deployment(&mut self, input: OfficeDeploymentInput) -> bool {
+        let Some(tenant_id) = office::parse_oid(&input.tenant_id) else {
+            self.error = Some(l!("Bitte die Entra-Tenant-ID (GUID) angeben."));
+            return false;
+        };
+        let audience = input.audience.trim().to_string();
+        if audience.is_empty() {
+            self.error = Some(l!("Bitte die erwartete Audience des Entra-Tokens angeben."));
+            return false;
+        }
+        let bootstrap_url = input.bootstrap_url.trim().to_string();
+        if !bootstrap_url.is_empty() && !office::is_office_url(&bootstrap_url) {
+            self.error = Some(l!("Die Bootstrap-URL muss eine öffentliche https-URL sein (kein localhost)."));
+            return false;
+        }
+        self.state.office_deployment = Some(OfficeDeploymentSettings { tenant_id, audience, bootstrap_url });
+        self.persist()
+    }
+
+    /// The deployment file for `keyzapper-office-bootstrap` (pretty JSON, no secrets).
+    pub fn office_deployment_json(&self) -> Result<String, String> {
+        let deployment = OfficeDeployment::from_state(&self.state)?;
+        serde_json::to_string_pretty(&deployment).map_err(|e| e.to_string())
     }
 
     pub fn save_profile(&mut self, profile: Profile, new_key: Option<String>) -> bool {
@@ -1071,6 +1186,15 @@ impl Model {
                             reset_at: b.reset_at.clone(),
                         }),
                         killers: self.budget_killers(p),
+                        office: p.office.as_ref().map(|o| OfficeView {
+                            enabled: o.enabled,
+                            allowed_hosts: o.allowed_hosts.iter().map(|h| h.as_str().to_string()).collect(),
+                            users_text: o.allowed_users.join("\n"),
+                            headers_text: McpServer::format_pairs(&o.inference_headers, ": "),
+                            mcp_server_ids: o.mcp_server_ids.clone(),
+                            ttl_minutes: o.bootstrap_ttl_seconds.map(|s| (s / 60).to_string()).unwrap_or_default(),
+                            gateway_auth_header: o.gateway_auth_header.as_str().to_string(),
+                        }),
                     }
                 })
                 .collect(),
@@ -1140,6 +1264,14 @@ impl Model {
             default_model_alias: self.config.default_model_alias.clone(),
             project_url: format!("https://github.com/{}", keyzapper_core::update::REPOSITORY),
             minimum_password_length: keyzapper_core::backup::MINIMUM_PASSWORD_LENGTH,
+            office_deployment: self.state.office_deployment.as_ref().map(|d| OfficeDeploymentView {
+                tenant_id: d.tenant_id.clone(),
+                audience: d.audience.clone(),
+                bootstrap_url: d.bootstrap_url.clone(),
+            }),
+            office_default_audience: office::ANTHROPIC_OFFICE_APP_ID,
+            office_default_ttl_minutes: office::DEFAULT_TTL_SECONDS / 60,
+            office_profiles: self.state.profiles.iter().filter(|p| p.is_office_enabled()).count(),
         }
     }
 }
@@ -1214,6 +1346,31 @@ pub struct View {
     default_model_alias: Option<String>,
     project_url: String,
     minimum_password_length: usize,
+    office_deployment: Option<OfficeDeploymentView>,
+    office_default_audience: &'static str,
+    office_default_ttl_minutes: u64,
+    /// Profiles released for Claude for Microsoft 365 (enables the export).
+    office_profiles: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OfficeDeploymentView {
+    tenant_id: String,
+    audience: String,
+    bootstrap_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OfficeView {
+    enabled: bool,
+    allowed_hosts: Vec<String>,
+    users_text: String,
+    headers_text: String,
+    mcp_server_ids: Vec<String>,
+    ttl_minutes: String,
+    gateway_auth_header: String,
 }
 
 #[derive(Serialize)]
@@ -1241,6 +1398,8 @@ struct ProfileView {
     key_hint: Option<String>,
     budget: Option<BudgetView>,
     killers: Vec<String>,
+    /// Claude for Microsoft 365 section, None when never configured.
+    office: Option<OfficeView>,
 }
 
 #[derive(Serialize)]

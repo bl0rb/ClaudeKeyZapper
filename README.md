@@ -96,6 +96,21 @@ sessions. Exit code 67 means the session expired; sign in again in KeyZapper.
 **Limitations:** SSO profiles do not support Budget-Killer pool, budget display, or key copying. Model loading and test connection
 use the access token.
 
+## Claude for Microsoft 365
+
+The same profiles can serve Claude for Excel, Word and PowerPoint (Outlook optional). The Office add-in cannot call
+`keyzapper-helper`; it fetches its configuration from an HTTPS bootstrap endpoint with the user's Microsoft Entra
+token, as Anthropic's third-party deployment documents. KeyZapper ships that endpoint as the separate service
+`keyzapper-office-bootstrap` (`desktop/office-bootstrap`), which validates the Entra token (signature, issuer, audience,
+tenant, `oid`), maps the user to a released profile and answers with gateway URL, a short-lived gateway token
+(LiteLLM virtual key), inference headers and the profile's remote MCP servers.
+
+Office is off per profile until an administrator releases it in the profile editor (*Claude for Microsoft 365*: allowed
+Office apps, Entra object IDs, inference headers, MCP servers, lifetime). *Backup › Export Office bootstrap
+configuration…* writes the deployment file for the service; it contains no keys. Keys are issued by the service itself.
+Setup, server configuration, manifest values (`entra_sso=1`, `bootstrap_url`) and troubleshooting:
+[docs/office-bootstrap.md](docs/office-bootstrap.md).
+
 ## How it works
 
 **Setup (once):** The key goes to the helper via stdin and ends up only in the key file `keys.json`. The app writes only references into the project.
