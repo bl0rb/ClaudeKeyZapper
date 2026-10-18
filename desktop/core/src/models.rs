@@ -83,6 +83,9 @@ pub struct Profile {
     /// `access` (default) or `id`: the gateway expects the OIDC ID token instead of the access token.
     #[serde(default, skip_serializing_if = "OidcTokenType::is_access")]
     pub oidc_token_type: OidcTokenType,
+    /// Release for Claude for Microsoft 365 (bootstrap endpoint); absent for profiles that only serve Claude Code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub office: Option<crate::office::OfficeSettings>,
 }
 
 fn placeholder_credential() -> CredentialReference {
@@ -101,7 +104,12 @@ impl Profile {
         let credential = CredentialReference::for_id(&id);
         Self { id, name, endpoint, model_alias, opus_model: None, sonnet_model: None, haiku_model: None, environment: None, credential,
                auth_type: AuthType::ApiKey, oidc_issuer: None, oidc_client_id: None, oidc_scope: None,
-               oidc_token_type: OidcTokenType::Access }
+               oidc_token_type: OidcTokenType::Access, office: None }
+    }
+
+    /// Released for Claude for Microsoft 365.
+    pub fn is_office_enabled(&self) -> bool {
+        self.office.as_ref().is_some_and(|o| o.enabled)
     }
 
     pub fn is_sso(&self) -> bool {
@@ -114,6 +122,7 @@ impl Profile {
             self.id = id;
         }
         self.credential = CredentialReference::for_id(&self.id);
+        self.office = self.office.map(crate::office::OfficeSettings::normalized);
         self
     }
 
@@ -416,11 +425,14 @@ pub struct AppState {
     /// MCP servers that can be assigned to projects.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp_servers: Vec<McpServer>,
+    /// Entra tenant, audience and bootstrap URL for the Claude for Microsoft 365 export (non-secret).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub office_deployment: Option<crate::office::OfficeDeploymentSettings>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        Self { schema_version: Self::CURRENT_SCHEMA_VERSION, profiles: vec![], bindings: vec![], global_binding: None, disabled: None, mcp_servers: vec![] }
+        Self { schema_version: Self::CURRENT_SCHEMA_VERSION, profiles: vec![], bindings: vec![], global_binding: None, disabled: None, mcp_servers: vec![], office_deployment: None }
     }
 }
 

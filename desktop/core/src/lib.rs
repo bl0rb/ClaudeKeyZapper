@@ -20,6 +20,7 @@ pub mod managed;
 pub mod mcp;
 pub mod metadata;
 pub mod models;
+pub mod office;
 pub mod oidc;
 pub mod paths;
 pub mod settings;

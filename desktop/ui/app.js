@@ -128,12 +128,13 @@ function setView(next) {
 let toolbarSignature = '';
 
 function renderToolbar() {
-  const signature = [view.language, view.profiles.length > 0, view.disabled, view.platform].join('|');
+  const signature = [view.language, view.profiles.length > 0, view.disabled, view.platform, view.officeProfiles > 0].join('|');
   if (signature === toolbarSignature) return;
   toolbarSignature = signature;
   const backupMenu = h('div', { id: 'backup-menu', popover: 'auto', class: 'menu' },
     button(t('Backup exportieren …'), () => { backupMenu.hidePopover(); exportDialog(); }, { disabled: !view.profiles.length }),
-    button(t('Backup importieren …'), () => { backupMenu.hidePopover(); importDialog(); }));
+    button(t('Backup importieren …'), () => { backupMenu.hidePopover(); importDialog(); }),
+    button(t('Office-Bootstrap-Konfiguration exportieren …'), () => { backupMenu.hidePopover(); officeExportDialog(); }, { disabled: !view.officeProfiles }));
   const backupButton = button(t('Backup'), null, { iconName: 'archive', iconOnly: true, title: t('Backup exportieren oder importieren') });
   backupButton.setAttribute('popovertarget', 'backup-menu');
   backupMenu.addEventListener('toggle', (event) => {
@@ -305,7 +306,8 @@ function profileCard(profile) {
   return h('section', { class: 'card', 'aria-label': profile.name },
     h('div', { class: 'card-head' },
       h('div', { class: 'spacer' },
-        h('h2', null, profile.name, profile.sso && h('span', { class: 'badge' }, 'SSO'), profile.managed && h('span', { class: 'badge' }, t('Von der IT vorgegeben'))),
+        h('h2', null, profile.name, profile.sso && h('span', { class: 'badge' }, 'SSO'), profile.managed && h('span', { class: 'badge' }, t('Von der IT vorgegeben')),
+          profile.office?.enabled && h('span', { class: 'badge', title: t('Für Claude for Microsoft 365 freigegeben') }, 'Microsoft 365')),
         h('div', { class: 'muted selectable' }, profile.endpoint + (profile.modelAlias ? t(' · Modell %@', profile.modelAlias) : '')),
         tierModels(profile) && h('div', { class: 'mono muted' }, tierModels(profile))),
       button(t('Bearbeiten'), () => profileEditor(profile), { disabled: profile.managed }),
@@ -507,6 +509,11 @@ function profileEditor(existing) {
     environmentText: existing?.environmentText ?? '', key: '', authType: existing?.sso ? 'oidc' : 'apiKey',
     oidcIssuer: existing?.oidcIssuer ?? '', oidcClientId: existing?.oidcClientId ?? '', oidcScope: existing?.oidcScope ?? '',
     oidcTokenType: existing?.oidcTokenType ?? 'access', models: [], loading: false, saving: false,
+    office: {
+      enabled: existing?.office?.enabled ?? false, allowedHosts: existing?.office?.allowedHosts ?? ['excel', 'word', 'powerpoint'],
+      usersText: existing?.office?.usersText ?? '', headersText: existing?.office?.headersText ?? '', mcpServerIds: existing?.office?.mcpServerIds ?? [],
+      ttlMinutes: existing?.office?.ttlMinutes ?? '', gatewayAuthHeader: existing?.office?.gatewayAuthHeader ?? 'x-api-key',
+    },
   };
   const managed = existing?.managed ?? false;
   const dlg = openDialog(existing ? t('Bearbeiten') : t('Neues Profil'), (close) => {
@@ -515,7 +522,8 @@ function profileEditor(existing) {
     const invalid = invalidEnvironmentLines(s.environmentText);
     const sso = s.authType === 'oidc';
     const issuerOk = !sso || /^https:\/\//i.test(s.oidcIssuer.trim()) || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(s.oidcIssuer.trim());
-    const valid = s.name.trim() && host && allowed && (sso ? issuerOk && s.oidcClientId.trim() : existing || s.key) && !invalid.length;
+    const officeProblems = officeInputProblems(s.office);
+    const valid = s.name.trim() && host && allowed && (sso ? issuerOk && s.oidcClientId.trim() : existing || s.key) && !invalid.length && !officeProblems.length;
     const update = (key) => (value) => { s[key] = value; dlg.render(); };
     const modelField = (label, key, id) => field(label, input({ value: s[key], placeholder: t('Claude-Standard'), list: 'gateway-models', disabled: managed }, update(key)), id);
     const loadModels = async () => {
@@ -578,8 +586,100 @@ function profileEditor(existing) {
             oninput: (e) => { s.environmentText = e.target.value; dlg.render(); } }),
           invalid.map((line) => h('div', { class: 'error-text' }, t('Ungültig oder nicht erlaubt: %@', line))),
           h('div', { class: 'section-note' }, t('Eine pro Zeile im Format NAME=Wert, z. B. CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1 für Bedrock über LiteLLM. Key, Endpunkt und Modelle werden oben gesetzt.'))),
+        officeFieldset(s.office, officeProblems, () => dlg.render()),
       ],
       actions: [button(t('Abbrechen'), close), button(existing ? t('Sichern') : t('Anlegen'), save, { cls: 'primary', disabled: !valid || s.saving })],
+    };
+  }, { wide: true });
+  restoreCaret(dlg);
+}
+
+const OFFICE_HOSTS = () => [['excel', 'Excel'], ['word', 'Word'], ['powerpoint', 'PowerPoint'], ['outlook', 'Outlook']];
+const RESERVED_HEADER_PREFIXES = ['anthropic-', 'x-amz-', 'x-goog-'];
+const RESERVED_HEADERS = ['authorization', 'x-api-key', 'content-type', 'host', 'content-length', 'user-agent', 'cookie', 'proxy-authorization', 'accept', 'origin'];
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isRemoteMcp = (s) => s.transport !== 'stdio' && /^https:\/\//i.test(s.url);
+
+/** Problems of the Office section as messages; empty when it can be saved (or is off and empty). */
+function officeInputProblems(o) {
+  const problems = [];
+  for (const line of o.usersText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))) {
+    if (!GUID.test(line)) problems.push(t('Keine gültige Entra-Objekt-ID (GUID): %@', line));
+  }
+  for (const line of invalidPairLines(o.headersText, ':')) problems.push(t('Ungültig oder nicht erlaubt: %@', line));
+  for (const line of o.headersText.split(/\r?\n/)) {
+    const name = line.split(':')[0].trim().toLowerCase();
+    if (name && (RESERVED_HEADERS.includes(name) || RESERVED_HEADER_PREFIXES.some((p) => name.startsWith(p)))) problems.push(t('Reservierter Header: %@', name));
+  }
+  const ttl = o.ttlMinutes.trim();
+  if (ttl && !(/^[0-9]{1,4}$/.test(ttl) && Number(ttl) >= 1 && Number(ttl) <= 1440)) problems.push(t('Die Gültigkeit muss zwischen %@ und %@ Minuten liegen.', 1, 1440));
+  return problems;
+}
+
+/** "Claude for Microsoft 365" section of the profile editor; fields appear only once the release is switched on. */
+function officeFieldset(o, problems, render) {
+  const update = (key) => (value) => { o[key] = value; render(); };
+  const remote = view.mcpServers.filter(isRemoteMcp);
+  const toggle = (list, value, checked) => { const set = new Set(list); if (checked) set.add(value); else set.delete(value); return [...set]; };
+  return h('fieldset', null, h('legend', null, t('Claude for Microsoft 365')),
+    h('label', { class: 'check' },
+      h('input', { type: 'checkbox', checked: o.enabled, onchange: (e) => { o.enabled = e.target.checked; render(); } }),
+      h('span', null, t('Für Claude for Microsoft 365 freigeben'))),
+    o.enabled && h('div', { class: 'field' }, h('label', null, t('Erlaubte Anwendungen')),
+      h('div', { class: 'line' }, OFFICE_HOSTS().map(([value, label]) => h('label', { class: 'check' },
+        h('input', { type: 'checkbox', checked: o.allowedHosts.includes(value), onchange: (e) => { o.allowedHosts = toggle(o.allowedHosts, value, e.target.checked); render(); } }),
+        h('span', null, label))))),
+    o.enabled && h('div', { class: 'field' }, h('label', { for: 'p-office-users' }, t('Entra-Benutzer (Objekt-IDs)')),
+      h('textarea', { id: 'p-office-users', value: o.usersText, spellcheck: 'false', placeholder: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', oninput: (e) => { o.usersText = e.target.value; render(); } })),
+    o.enabled && h('div', { class: 'field-note section-note' }, t('Eine Objekt-ID (GUID) pro Zeile. Der Bootstrap-Dienst ordnet Benutzer über die oid des Entra-Tokens zu.')),
+    o.enabled && h('div', { class: 'field' }, h('label', { for: 'p-office-headers' }, t('Inference-Header')),
+      h('textarea', { id: 'p-office-headers', value: o.headersText, spellcheck: 'false', placeholder: 'x-keyzapper-cost-center: 4711', oninput: (e) => { o.headersText = e.target.value; render(); } })),
+    o.enabled && h('div', { class: 'field-note section-note' }, t('Eine pro Zeile im Format Name: Wert. Keine Secrets; Authorization, x-api-key und anthropic-* sind reserviert. {{profile-id}} und {{profile-name}} werden ersetzt.')),
+    o.enabled && h('div', { class: 'field' }, h('label', null, t('MCP-Server')),
+      !remote.length ? h('span', { class: 'muted' }, t('Noch keine Remote-MCP-Server eingerichtet.'))
+        : h('div', null, remote.map((srv) => h('label', { class: 'check' },
+          h('input', { type: 'checkbox', checked: o.mcpServerIds.includes(srv.id), onchange: (e) => { o.mcpServerIds = toggle(o.mcpServerIds, srv.id, e.target.checked); render(); } }),
+          h('span', null, h('strong', null, srv.name), ' ', h('span', { class: 'mono muted small' }, srv.url)))))),
+    o.enabled && h('div', { class: 'field-note section-note' }, t('Nur Remote-Server (HTTP/SSE über https) erreichen das Add-in; lokale stdio-Server werden ausgelassen.')),
+    o.enabled && field(t('Gültigkeit (Minuten)'), input({ value: o.ttlMinutes, placeholder: String(view.officeDefaultTtlMinutes), inputmode: 'numeric' }, update('ttlMinutes')), 'p-office-ttl'),
+    o.enabled && field(t('Token-Header'), h('select', { onchange: (e) => { o.gatewayAuthHeader = e.target.value; render(); } },
+      h('option', { value: 'x-api-key', selected: o.gatewayAuthHeader !== 'authorization' }, 'x-api-key'),
+      h('option', { value: 'authorization', selected: o.gatewayAuthHeader === 'authorization' }, 'Authorization: Bearer')), 'p-office-auth'),
+    o.enabled && problems.map((p) => h('div', { class: 'error-text' }, p)),
+    o.enabled && h('div', { class: 'section-note' }, t('Office-Benutzer erhalten ihre Konfiguration nicht von dieser App, sondern vom Dienst keyzapper-office-bootstrap. Die Konfiguration dafür: Backup › Office-Bootstrap-Konfiguration exportieren.')));
+}
+
+/** Tenant, audience and bootstrap URL, then the deployment file for keyzapper-office-bootstrap. */
+function officeExportDialog() {
+  const d = view.officeDeployment ?? {};
+  const s = { tenantId: d.tenantId ?? '', audience: d.audience ?? '', bootstrapUrl: d.bootstrapUrl ?? '', working: false };
+  const dlg = openDialog(t('Office-Bootstrap-Konfiguration exportieren'), (close) => {
+    const tenantOk = GUID.test(s.tenantId.trim());
+    const urlOk = !s.bootstrapUrl.trim() || /^https:\/\/(?!localhost|127\.0\.0\.1)[^/\s]+/i.test(s.bootstrapUrl.trim());
+    const valid = tenantOk && s.audience.trim() && urlOk && view.officeProfiles > 0;
+    const update = (key) => (value) => { s[key] = value; dlg.render(); };
+    return {
+      body: [
+        h('h2', null, t('Office-Bootstrap-Konfiguration exportieren')),
+        h('div', { class: 'muted' }, t('%@ Profil(e) freigegeben', view.officeProfiles)),
+        field(t('Entra-Tenant-ID'), input({ value: s.tenantId, placeholder: '99999999-9999-9999-9999-999999999999' }, update('tenantId')), 'o-tenant'),
+        s.tenantId.trim() && !tenantOk && h('div', { class: 'field-note error-text' }, t('Keine gültige Entra-Objekt-ID (GUID): %@', s.tenantId.trim())),
+        field(t('Audience'), input({ value: s.audience, placeholder: view.officeDefaultAudience }, update('audience')), 'o-audience'),
+        h('div', { class: 'field-note section-note' }, t('Anthropic-App %@ oder die eigene Entra-App (Client-ID oder api://-URI).', view.officeDefaultAudience)),
+        field(t('Bootstrap-URL'), input({ value: s.bootstrapUrl, placeholder: 'https://keyzapper.firma.example/office/bootstrap' }, update('bootstrapUrl')), 'o-url'),
+        s.bootstrapUrl.trim() && !urlOk && h('div', { class: 'field-note error-text' }, t('Die Bootstrap-URL muss eine öffentliche https-URL sein (kein localhost).')),
+        h('div', { class: 'field-note section-note' }, t('Öffentliche https-Adresse des Bootstrap-Dienstes (für bootstrap_url im Add-in-Manifest).')),
+        h('div', { class: 'note' }, icon('fileLock', 'accent'), t('Die Datei enthält Profile mit Office-Freigabe, deren Remote-MCP-Server und Benutzerzuordnungen – keine Keys. Keys vergibt der Dienst selbst (LiteLLM Virtual Keys oder eine separate Key-Datei).')),
+        h('div', { class: 'section-note' }, t('Manifest-Werte: entra_sso=1 und bootstrap_url=%@. Details in docs/office-bootstrap.md.', s.bootstrapUrl.trim() || '…')),
+      ],
+      actions: [button(t('Abbrechen'), close, { disabled: s.working }),
+        button(s.working ? '…' : t('Exportieren …'), async () => {
+          s.working = true; dlg.render();
+          const saved = await call('save_office_deployment', { input: { tenantId: s.tenantId.trim(), audience: s.audience.trim(), bootstrapUrl: s.bootstrapUrl.trim() } });
+          const ok = saved?.[0] && await call('export_office_config');
+          s.working = false;
+          if (ok) close(); else dlg.render();
+        }, { cls: 'primary', disabled: !valid || s.working })],
     };
   }, { wide: true });
   restoreCaret(dlg);
