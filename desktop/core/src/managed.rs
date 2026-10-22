@@ -10,9 +10,10 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 pub const DOMAIN: &str = "io.github.bl0rb.keyzapper";
-pub const KEYS: [&str; 11] = [
+pub const KEYS: [&str; 12] = [
     "ManagedProfiles", "AllowedGatewayHosts", "DefaultEndpoint", "DefaultModelAlias", "MinimumClaudeCodeVersion",
     "OneDriveBackup", "BackupDirectory", "UpdateCheckEnabled", "AllowKeyExport", "ManagedMcpServersURL", "ClaudeToolsEnabled",
+    "ClaudeDesktopAutoInstall",
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -43,7 +44,8 @@ pub struct ManagedConfig {
     /// `EntraClientID`, `EntraScope`, `DisabledFeatures` (array or comma separated string); an optional `ClaudeDesktop`
     /// dict (Claude Desktop signs in itself): `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL`, `Scopes` and
     /// `BearerTokenType` (`id_token` default | `access_token`) and `CredentialKind` (`external-idp` default | `interactive`,
-    /// the older spelling for Claude Desktop before 2.7032.0; anything else makes `problems()` report the block).
+    /// the older spelling for Claude Desktop before 2.7032.0; anything else makes `problems()` report the block), `Config`
+    /// (dict of further Claude Desktop configuration keys) and `AutoApply` (Bool, default off: set up without a click).
     pub profiles: Vec<ManagedProfile>,
     /// `AllowedGatewayHosts`: exact hosts or `*.domain`; empty = no restriction.
     pub allowed_gateway_hosts: Vec<String>,
@@ -64,6 +66,8 @@ pub struct ManagedConfig {
     pub managed_mcp_servers_url: Option<String>,
     /// `ClaudeToolsEnabled`: page for installing Claude Code, its IDE plugins and Claude Desktop (default on).
     pub claude_tools_enabled: bool,
+    /// `ClaudeDesktopAutoInstall`: install a missing Claude Desktop in the background, independent of the tools page (default off).
+    pub claude_desktop_auto_install: bool,
 }
 
 impl Default for ManagedConfig {
@@ -113,6 +117,7 @@ impl ManagedConfig {
             allow_key_export: as_bool(values.get("AllowKeyExport")).unwrap_or(true),
             managed_mcp_servers_url: as_string(values.get("ManagedMcpServersURL")).map(|u| u.trim().to_string()).filter(|u| !u.is_empty()),
             claude_tools_enabled: as_bool(values.get("ClaudeToolsEnabled")).unwrap_or(true),
+            claude_desktop_auto_install: as_bool(values.get("ClaudeDesktopAutoInstall")).unwrap_or(false),
         }
     }
 
@@ -216,6 +221,8 @@ fn desktop_sso(dict: &Map<String, Value>) -> DesktopSso {
             "interactive" => CredentialKind::Interactive,
             _ => CredentialKind::Unknown,
         },
+        config: dict.get("Config").and_then(Value::as_object).cloned().unwrap_or_default(),
+        auto_apply: as_bool(dict.get("AutoApply")).unwrap_or(false),
     }
 }
 

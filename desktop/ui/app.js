@@ -1538,6 +1538,10 @@ function claudeDesktopSettings() {
       t('Für „%@“ eingerichtet, in Claude Desktop ist aber eine andere Konfiguration ausgewählt.', configured.name)),
     view.claudeDesktop.managed && h('div', { class: 'finding orange' }, icon('warning'),
       t('Claude Desktop wird auf diesem Rechner von der IT konfiguriert; KeyZapper richtet es deshalb nicht ein.')),
+    view.claudeDesktop.auto && !view.claudeDesktop.managed && h('div', { class: 'finding' }, icon('info', 'muted'),
+      t('Von der IT eingerichtet: KeyZapper schreibt diese Konfiguration beim Start und beim Aktualisieren wieder, falls sie fehlt oder geändert wurde.')),
+    view.claudeDesktop.problem && h('div', { class: 'finding orange' }, icon('warning'), view.claudeDesktop.problem),
+    view.claudeDesktop.installError && h('div', { class: 'finding orange' }, icon('warning'), view.claudeDesktop.installError),
     h('div', { class: 'line' }, h('span', { class: 'spacer' }),
       button(t('Übernehmen'), async () => {
         const signsInItself = view.profiles.find((p) => p.id === selected)?.claudeDesktop;

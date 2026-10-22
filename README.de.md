@@ -264,7 +264,7 @@ Verwaltete Einstellungen haben Vorrang vor Projekteinstellungen; KeyZapper brich
 | Schlüssel | Typ | Wirkung |
 |---|---|---|
 | `ManagedProfiles` | Array von Dicts: `Name`, `Endpoint`, optional `OpusModel`, `SonnetModel`, `HaikuModel`, `ModelAlias`, `Environment` (Dict), `ID`, `Type` (`apiKey` Standard oder `oidc`), `OIDCIssuer`, `OIDCClientID`, `OIDCScope`, `OIDCTokenType`, `Office`, `ClaudeDesktop` (Dicts, siehe unten) | Profile werden automatisch angelegt und sind nicht editier- oder löschbar; Entwickler tragen nur den Key ein (oder melden sich für SSO an). Ohne `ID` wird die Profil-ID aus `Name` abgeleitet, eine Umbenennung erzeugt also ein neues Profil. Bei SSO (`oidc`) sind `OIDCIssuer` und `OIDCClientID` erforderlich; `OIDCScope` Standard `openid profile offline_access`; `OIDCTokenType` ist `access` (Standard) oder `id`, andere Werte verwerfen das Profil. |
-| `ClaudeDesktop` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL` (Standard: `Endpoint` des Profils), `Scopes`, `BearerTokenType` (`id_token` Standard oder `access_token`), `CredentialKind` (`external-idp` Standard oder `interactive`) | Claude Desktop meldet sich selbst mit dem OIDC-Client des Gateways an, wenn dieses Profil dafür gewählt ist (siehe [Claude-Tools](#claude-tools)). `external-idp` braucht Claude Desktop ab 2.7032.0; solange ältere Versionen im Einsatz sind, `interactive` setzen. Ein Block mit unbrauchbaren Werten (auch ein unbekanntes `CredentialKind`) bleibt erhalten; KeyZapper schreibt dann nichts für Claude Desktop. |
+| `ClaudeDesktop` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL` (Standard: `Endpoint` des Profils), `Scopes`, `BearerTokenType` (`id_token` Standard oder `access_token`), `CredentialKind` (`external-idp` Standard oder `interactive`), `Config` (Dict weiterer Claude-Desktop-Schlüssel), `AutoApply` (Bool, Standard `false`) | Claude Desktop meldet sich selbst mit dem OIDC-Client des Gateways an, wenn dieses Profil dafür gewählt ist (siehe [Claude-Tools](#claude-tools)). `external-idp` braucht Claude Desktop ab 2.7032.0; solange ältere Versionen im Einsatz sind, `interactive` setzen. Ein Block mit unbrauchbaren Werten (auch ein unbekanntes `CredentialKind`) bleibt erhalten; KeyZapper schreibt dann nichts für Claude Desktop. |
 | `Office` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `Enabled` (Bool, Standard `true`), `AddinID`, `GatewayURL`, `EntraClientID`, `EntraScope`, `DisabledFeatures` (Array oder kommagetrennter String) | Richtet [Claude in Microsoft 365](#claude-in-microsoft-365-über-das-profil) aus diesem Profil ein. Werte werden getrimmt. Ein Block mit unbrauchbaren Werten bleibt erhalten und wird in der Profilkarte gemeldet; dann wird nichts geschrieben. |
 | `AllowedGatewayHosts` | Array von Strings (`host` oder `*.domain`) | Profile nur für diese Hosts. Der Helper gibt Keys für andere Hosts nicht heraus (Exit 78). Gilt nur für den Gateway-Host; der IdP-Host muss nicht gelistet sein. Leer bedeutet keine Einschränkung. |
 | `DefaultEndpoint`, `DefaultModelAlias` | String | Vorbelegung beim Anlegen eigener Profile |
@@ -275,6 +275,7 @@ Verwaltete Einstellungen haben Vorrang vor Projekteinstellungen; KeyZapper brich
 | `AllowKeyExport` | Bool (Standard `true`) | Ob Keys die App verlassen dürfen. `false`: kein Kopieren in die Zwischenablage; Backups enthalten nur Profile und Zuordnungen. |
 | `ManagedMcpServersURL` | String (https-URL) | Adresse der zentralen MCP-Liste (siehe [Zentrale MCP-Liste](#zentrale-mcp-liste)). |
 | `ClaudeToolsEnabled` | Bool (Standard `true`) | Zeigt die Seite *Claude-Tools* zum Installieren von Claude Code, den IDE-Plugins und Claude Desktop. |
+| `ClaudeDesktopAutoInstall` | Bool (Standard `false`) | Installiert ein fehlendes Claude Desktop im Hintergrund aus den offiziellen Quellen von Anthropic, auch wenn die Seite *Claude-Tools* ausgeblendet ist (siehe [Claude-Tools](#claude-tools)). |
 
 Lokal testen (Benutzerebene; per Intune verwaltete Werte haben Vorrang):
 
@@ -367,9 +368,22 @@ Drittanbieter-Modus von Claude Desktop in dessen Konfigurationsbibliothek an (`~
 Claude Desktop holt Key oder SSO-Token so über `keyzapper-helper`, genau wie Claude Code; in der Datei steht kein Key. Die
 Helper-TTL folgt `CLAUDE_CODE_API_KEY_HELPER_TTL_MS` des Profils (Standard 300 s). Danach Claude Desktop beenden, neu öffnen
 und auf dem Anmeldebildschirm den Start mit dieser Konfiguration wählen. *Normale Anmeldung (claude.ai)* entfernt den Eintrag
-wieder. Ändert sich das Profil, aktualisiert KeyZapper die Datei. Eine Claude-Desktop-Konfiguration, die die IT per MDM-Profil
-(`com.anthropic.claudefordesktop`) oder Registry (`HKLM\SOFTWARE\Policies\Claude`) verteilt, hat Vorrang; KeyZapper schreibt
-dann nichts, die Seite weist darauf hin. Beim Deaktivieren entfernt KeyZapper den Eintrag, beim Aktivieren schreibt es ihn wieder.
+wieder und aktiviert die zuvor aktive Konfiguration, sofern es sie noch gibt. Ändert sich das Profil, aktualisiert KeyZapper
+die Datei. Eine Claude-Desktop-Konfiguration, die die IT per MDM-Profil (`com.anthropic.claudefordesktop`) oder Registry
+(`HKLM\SOFTWARE\Policies\Claude`) verteilt, hat Vorrang, wenn sie mehr als die Update-, Neustart- und Proxy-Schlüssel der App
+setzt; KeyZapper schreibt dann nichts, die Seite weist darauf hin. Beim Deaktivieren entfernt KeyZapper den Eintrag, beim
+Aktivieren schreibt es ihn wieder.
+
+**Claude Desktop von der IT eingerichtet:** Im `ClaudeDesktop`-Dict eines verwalteten Profils fügt `Config` weitere Schlüssel
+der [Konfigurationsreferenz](https://claude.com/docs/third-party/claude-desktop/configuration) von Claude Desktop in den
+Eintrag ein (native Typen, z. B. `disableDeploymentModeChooser`, `coworkEgressAllowedHosts`). Die Anmeldeschlüssel, die
+KeyZapper ableitet, haben Vorrang; Schlüssel mit Geheimnissen, Headern, lokalen Programmen oder Zugangsdateien und
+Bootstrap-Schlüssel werden abgelehnt, dann wird nichts geschrieben. Mit `AutoApply` schreibt und aktiviert KeyZapper den
+Eintrag ohne Klick und schreibt ihn beim Start und beim Aktualisieren wieder, falls er fehlt oder geändert wurde (nur ein
+verwaltetes Profil darf das setzen). Dazwischen kann der Nutzer ihn ändern, erzwungen ist darin also nichts; was erzwungen
+werden muss, bleibt im MDM. Mit `ClaudeDesktopAutoInstall` installiert KeyZapper ein fehlendes Claude Desktop
+im Hintergrund, nachdem die Konfiguration geschrieben ist, unabhängig von `ClaudeToolsEnabled`; eine fehlgeschlagene
+Installation wird bei *Status aktualisieren* wiederholt.
 
 **Claude Desktop mit eigener SSO-Anmeldung:** Hat das Gateway einen eigenen OIDC-Client für Claude Desktop (andere Client-ID
 oder Gateway-Route als Claude Code), im Profil *Claude Desktop (SSO)* einschalten und Issuer, Client-ID sowie optional

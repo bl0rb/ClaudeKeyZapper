@@ -112,6 +112,9 @@ pub fn restoring_dropped_fields(state: AppState, mirror: &AppState) -> AppState 
     if result.claude_desktop_profile_id.is_none() {
         result.claude_desktop_profile_id = mirror.claude_desktop_profile_id.clone();
     }
+    if result.claude_desktop_previous_applied.is_none() {
+        result.claude_desktop_previous_applied = mirror.claude_desktop_previous_applied.clone();
+    }
     // A project's tenant choice, independent of the MCP fields below (an older build that knows those still drops this).
     // Only for a project that still uses the same profile; a re-assignment made by the older build is not undone.
     for binding in result.bindings.iter_mut().filter(|b| b.models.is_none()) {

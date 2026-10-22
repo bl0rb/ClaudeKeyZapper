@@ -65,6 +65,10 @@ pub struct Model {
     pub office_sideload: Sideload,
     /// The last good copy of Anthropic's manifest template.
     office_template: PathBuf,
+    /// Claude Desktop's configuration library (tests point it into a temporary folder).
+    pub desktop_library: PathBuf,
+    /// Why the Claude Desktop setup IT asks for (`AutoApply`) is not written; recomputed by every run.
+    desktop_problem: Option<String>,
     pub config: ManagedConfig,
     /// None for development builds.
     pub app_version: Option<String>,
@@ -146,6 +150,7 @@ impl DesktopSsoInput {
             scopes: self.scopes.trim().to_string(),
             bearer_token_type: self.bearer_token_type,
             credential_kind: self.credential_kind,
+            ..DesktopSso::default()
         })
     }
 }
@@ -247,6 +252,8 @@ impl Model {
             office_problem: None,
             office_sideload: Sideload::system(),
             office_template: claude_office::template_file_in(&data_dir),
+            desktop_library: claude_desktop::library_dir(),
+            desktop_problem: None,
             config,
             app_version: version,
             keys: KeyStore { file: data_dir.join("keys.json") },
@@ -590,10 +597,11 @@ impl Model {
             self.state.global_binding = None;
         }
         if self.desktop_status().profile_id.as_deref() == Some(id) {
-            let _ = claude_desktop::remove(&claude_desktop::library_dir());
+            let _ = claude_desktop::remove(&self.desktop_library, self.state.claude_desktop_previous_applied.as_deref());
         }
         if self.state.claude_desktop_profile_id.as_deref() == Some(id) {
             self.state.claude_desktop_profile_id = None;
+            self.state.claude_desktop_previous_applied = None;
         }
         self.claude_desktop = self.desktop_status();
         self.state.profiles.retain(|p| p.id != id);
@@ -1228,9 +1236,10 @@ impl Model {
                     self.notice = Some(l!("Claude Desktop nutzt jetzt „%@“. Bitte Claude Desktop beenden und neu öffnen.", profile.name));
                 }
             }
-            None => match claude_desktop::remove(&claude_desktop::library_dir()) {
+            None => match claude_desktop::remove(&self.desktop_library, self.state.claude_desktop_previous_applied.as_deref()) {
                 Ok(()) => {
                     self.state.claude_desktop_profile_id = None;
+                    self.state.claude_desktop_previous_applied = None;
                     self.persist();
                     self.notice = Some(l!("KeyZapper-Konfiguration aus Claude Desktop entfernt. Nach einem Neustart meldet sich Claude Desktop wieder normal an."));
                 }
@@ -1240,9 +1249,54 @@ impl Model {
         self.claude_desktop = self.desktop_status();
     }
 
+    /// Records how the background installation of Claude Desktop ended (None = installed).
+    pub fn record_desktop_install(&mut self, error: Option<String>) {
+        let error = error.map(|e| l!("Claude Desktop konnte nicht installiert werden: %@", e));
+        if self.state.claude_desktop_install_error != error {
+            self.state.claude_desktop_install_error = error;
+            self.persist();
+        }
+    }
+
     /// What Claude Desktop is set to; the record names the profile of the sign-in variant, whose entry does not.
     fn desktop_status(&self) -> claude_desktop::Status {
-        claude_desktop::status(&claude_desktop::library_dir(), self.state.claude_desktop_profile_id.as_deref())
+        claude_desktop::status(&self.desktop_library, self.state.claude_desktop_profile_id.as_deref())
+    }
+
+    /// Claude Desktop with the one IT profile whose `ClaudeDesktop` block has `AutoApply`: written and applied without a click,
+    /// and written again at start and refresh when the entry was deleted or edited or another one was applied. Never while
+    /// KeyZapper is deactivated or IT configures Claude Desktop itself; without `AutoApply` nothing is touched unprompted.
+    pub fn auto_apply_claude_desktop(&mut self) {
+        self.desktop_problem = None;
+        if self.is_disabled() || self.desktop_status().managed {
+            return;
+        }
+        let auto: Vec<Profile> = self
+            .state
+            .profiles
+            .iter()
+            .filter(|p| self.config.is_managed(&p.id) && p.claude_desktop.as_ref().is_some_and(|d| d.auto_apply))
+            .cloned()
+            .collect();
+        let profile = match auto.as_slice() {
+            [] => return,
+            [profile] => profile.clone(),
+            _ => {
+                self.desktop_problem = Some(l!("Mehrere Profile der IT sollen Claude Desktop automatisch einrichten; KeyZapper richtet deshalb keins ein."));
+                return;
+            }
+        };
+        let Some(helper) = self.binder.as_ref().map(|b| b.helper_path.clone()) else { return };
+        if claude_desktop::is_current(&self.desktop_library, &claude_desktop::configuration(&profile, &helper)) {
+            return;
+        }
+        // Reported in the Claude Desktop settings, not as a message at start.
+        let error = self.error.take();
+        if !self.apply_claude_desktop(&profile) {
+            self.desktop_problem = self.error.take();
+        }
+        self.error = error;
+        self.claude_desktop = self.desktop_status();
     }
 
     /// Writes KeyZapper's entry for `profile` and records it. Not while IT configures Claude Desktop: its settings win,
@@ -1263,10 +1317,14 @@ impl Model {
                 return false;
             }
         }
-        match claude_desktop::apply(&claude_desktop::library_dir(), profile, &helper) {
+        // What Claude Desktop applied before KeyZapper's entry comes back when KeyZapper removes it.
+        let previous = claude_desktop::applied_id(&self.desktop_library);
+        let previous = if previous.as_deref() == Some(claude_desktop::ENTRY_ID) { self.state.claude_desktop_previous_applied.clone() } else { previous };
+        match claude_desktop::apply(&self.desktop_library, profile, &helper) {
             Ok(()) => {
-                if self.state.claude_desktop_profile_id.as_deref() != Some(profile.id.as_str()) {
+                if self.state.claude_desktop_profile_id.as_deref() != Some(profile.id.as_str()) || self.state.claude_desktop_previous_applied != previous {
                     self.state.claude_desktop_profile_id = Some(profile.id.clone());
+                    self.state.claude_desktop_previous_applied = previous;
                     self.persist();
                 }
                 true
@@ -1505,7 +1563,7 @@ impl Model {
             }
             // Claude Desktop goes back to its normal sign-in too; the record stays for the activation.
             if self.state.claude_desktop_profile_id.is_some() {
-                if let Err(e) = claude_desktop::remove(&claude_desktop::library_dir()) {
+                if let Err(e) = claude_desktop::remove(&self.desktop_library, self.state.claude_desktop_previous_applied.as_deref()) {
                     self.error = Some(l!("Claude Desktop konnte nicht eingerichtet werden: %@", e));
                 }
             }
@@ -1533,6 +1591,7 @@ impl Model {
                 self.apply_claude_desktop(&profile);
                 self.claude_desktop = self.desktop_status();
             }
+            self.auto_apply_claude_desktop();
             self.notice = Some(l!("KeyZapper ist wieder aktiv. Laufende Claude-Sitzungen bitte neu starten."));
         }
     }
@@ -1792,6 +1851,11 @@ impl Model {
                 profile_id: self.claude_desktop.profile_id.clone(),
                 applied: self.claude_desktop.applied,
                 managed: self.claude_desktop.managed,
+                auto: self.claude_desktop.profile_id.as_deref().and_then(|id| self.state.profile(id)).is_some_and(|p| {
+                    self.config.is_managed(&p.id) && p.claude_desktop.as_ref().is_some_and(|d| d.auto_apply)
+                }),
+                problem: self.desktop_problem.clone(),
+                install_error: self.state.claude_desktop_install_error.clone(),
             },
             subscription: self.subscription.clone().filter(|_| self.has_subscription_profile()),
             office: self.office_view(),
@@ -2058,6 +2122,12 @@ struct ClaudeDesktopView {
     profile_id: Option<String>,
     applied: bool,
     managed: bool,
+    /// Set up by IT without a click (`AutoApply`).
+    auto: bool,
+    /// Why the setup IT asks for is not written.
+    problem: Option<String>,
+    /// Why the background installation failed.
+    install_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -2219,6 +2289,71 @@ mod tests {
         let chosen = model.state.bindings.iter().find(|b| b.id == sso_project.id).unwrap().models.clone();
         assert_eq!(chosen.map(|m| m.tenant), Some("bedrock".to_string()));
         assert!(std::fs::read_to_string(sso_folder.join(".claude/settings.local.json")).unwrap().contains("bedrock/claude-sonnet-5-5"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A model with the managed profiles `profiles` (JSON as in Intune), a binder and its own Claude Desktop library below `root`.
+    fn managed_model(root: &Path, profiles: serde_json::Value) -> Model {
+        let config = ManagedConfig::from_values(serde_json::json!({ "ManagedProfiles": profiles }).as_object().unwrap());
+        let mut model = Model::load_from(None, config, root.join("data"));
+        model.binder = Some(SettingsBinder {
+            helper_path: root.join("keyzapper-helper").to_string_lossy().into_owned(),
+            managed_settings_paths: vec![],
+            user_settings_path: root.join("user-settings.json").to_string_lossy().into_owned(),
+        });
+        model.desktop_library = root.join("configLibrary");
+        model
+    }
+
+    #[test]
+    fn claude_desktop_is_set_up_without_a_click_and_the_earlier_configuration_comes_back() {
+        let root = std::env::temp_dir().join(format!("kz-desktop-auto-{}", new_id()));
+        let block = |auto: bool| {
+            serde_json::json!({"OIDCIssuer": "https://login.example.test/t/v2.0", "OIDCClientID": "c1", "AutoApply": auto,
+                "Config": {"disableDeploymentModeChooser": true}})
+        };
+        let profile = |name: &str, auto: bool| serde_json::json!({"Name": name, "Endpoint": "https://llm-gateway.example/code", "ClaudeDesktop": block(auto)});
+        let mut model = managed_model(&root, serde_json::json!([profile("Firma", true), profile("Andere", false)]));
+        let library = model.desktop_library.clone();
+        let entry = library.join(format!("{}.json", claude_desktop::ENTRY_ID));
+        // The user had applied a configuration of their own.
+        let own = "11111111-0000-4000-8000-000000000001";
+        std::fs::create_dir_all(&library).unwrap();
+        std::fs::write(library.join(format!("{own}.json")), "{}").unwrap();
+        std::fs::write(library.join("_meta.json"), serde_json::json!({"appliedId": own, "entries": [{"id": own, "name": "Eigene"}]}).to_string()).unwrap();
+
+        model.auto_apply_claude_desktop();
+        assert_eq!(claude_desktop::applied_id(&library).as_deref(), Some(claude_desktop::ENTRY_ID));
+        let written: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&entry).unwrap()).unwrap();
+        assert_eq!((written["disableDeploymentModeChooser"].clone(), written["inferenceCredentialKind"].clone()), (true.into(), "external-idp".into()));
+        let view = model.view().claude_desktop;
+        assert!(view.auto && view.applied && view.problem.is_none());
+
+        // A deleted entry is written again; an unchanged one is left alone.
+        std::fs::remove_file(&entry).unwrap();
+        model.auto_apply_claude_desktop();
+        assert!(entry.is_file());
+        let modified = std::fs::metadata(&entry).unwrap().modified().unwrap();
+        model.auto_apply_claude_desktop();
+        assert_eq!(std::fs::metadata(&entry).unwrap().modified().unwrap(), modified);
+
+        // Deactivating brings the user's own configuration back; activating sets the organisation's up again.
+        model.set_disabled(true);
+        assert!(!entry.exists());
+        assert_eq!(claude_desktop::applied_id(&library).as_deref(), Some(own));
+        model.auto_apply_claude_desktop();
+        assert!(!entry.exists(), "nothing is written while KeyZapper is deactivated");
+        model.set_disabled(false);
+        assert_eq!(claude_desktop::applied_id(&library).as_deref(), Some(claude_desktop::ENTRY_ID));
+        let _ = std::fs::remove_dir_all(&root);
+
+        // Two profiles asking for it: none is set up, and the settings say why.
+        let root = std::env::temp_dir().join(format!("kz-desktop-auto-two-{}", new_id()));
+        let mut model = managed_model(&root, serde_json::json!([profile("Firma", true), profile("Andere", true)]));
+        model.error = None;
+        model.auto_apply_claude_desktop();
+        assert!(!model.desktop_library.join(format!("{}.json", claude_desktop::ENTRY_ID)).exists());
+        assert!(model.view().claude_desktop.problem.is_some() && model.error.is_none(), "{:?}", model.error);
         let _ = std::fs::remove_dir_all(&root);
     }
 

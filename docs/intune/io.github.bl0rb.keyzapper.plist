@@ -47,6 +47,13 @@
       <string>id_token</string>
       <key>CredentialKind</key>
       <string>external-idp</string>
+      <key>AutoApply</key>
+      <true/>
+      <key>Config</key>
+      <dict>
+        <key>disableDeploymentModeChooser</key>
+        <true/>
+      </dict>
     </dict>
     <key>Office</key>
     <dict>
@@ -67,6 +74,8 @@
     </dict>
   </dict>
 </array>
+<key>ClaudeDesktopAutoInstall</key>
+<false/>
 <key>AllowedGatewayHosts</key>
 <array>
   <string>litellm.firma.example</string>

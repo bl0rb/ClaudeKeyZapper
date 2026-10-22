@@ -1372,6 +1372,16 @@ fn the_claude_desktop_block_of_a_managed_profile_is_optional_and_a_broken_one_is
     let bogus = with_kind("bogus");
     assert_eq!(bogus.credential_kind, CredentialKind::Unknown);
     assert_eq!(bogus.problems().len(), 1);
+    // Further keys are taken as they are; `AutoApply` is off unless set.
+    assert!(!sso.auto_apply && sso.config.is_empty());
+    let auto = parse(json!({"OIDCIssuer": "https://login.example.test/t/v2.0", "OIDCClientID": "c1", "AutoApply": true,
+        "Config": {"disableDeploymentModeChooser": true, "coworkEgressAllowedHosts": ["example.com"]}}))
+    .unwrap();
+    assert!(auto.auto_apply && auto.problems().is_empty());
+    assert_eq!(Value::Object(auto.config), json!({"disableDeploymentModeChooser": true, "coworkEgressAllowedHosts": ["example.com"]}));
+    // The installation without a click is a separate switch, off by default.
+    assert!(!ManagedConfig::from_values(&serde_json::Map::new()).claude_desktop_auto_install);
+    assert!(ManagedConfig::from_values(json!({"ClaudeDesktopAutoInstall": true}).as_object().unwrap()).claude_desktop_auto_install);
 }
 
 #[test]
