@@ -180,6 +180,11 @@ fn desktop_app() -> Option<PathBuf> {
     [PathBuf::from("/Applications"), paths::home_dir().join("Applications")].into_iter().map(|d| d.join("Claude.app")).find(|p| p.is_dir())
 }
 
+/// Claude Desktop is installed (the same check the tools page uses).
+pub fn desktop_installed() -> bool {
+    desktop_version().is_some()
+}
+
 fn desktop_version() -> Option<String> {
     #[cfg(target_os = "macos")]
     {

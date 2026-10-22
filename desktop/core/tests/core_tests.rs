@@ -834,6 +834,7 @@ fn whats_new_lists_releases_since_the_previous_version() {
     assert!(versions(Some("1.4.3"), "1.4.4").is_empty());
     assert_eq!(versions(Some("1.4.3"), "1.5.0-beta.1"), vec!["1.5.0"]);
     assert!(versions(Some("1.5.0-beta.1"), "1.5.0").is_empty());
+    assert_eq!(versions(Some("1.5.0"), "1.5.1"), vec!["1.5.1"]);
     assert!(since(Some("1.3.0"), "1.4.0")[0].items.iter().all(|i| !i.is_empty()));
 }
 
@@ -1340,7 +1341,7 @@ fn the_office_block_of_a_managed_profile_is_optional_and_a_broken_one_is_kept() 
 
 #[test]
 fn the_claude_desktop_block_of_a_managed_profile_is_optional_and_a_broken_one_is_kept() {
-    use keyzapper_core::claude_desktop::BearerTokenType;
+    use keyzapper_core::claude_desktop::{BearerTokenType, CredentialKind};
     use keyzapper_core::managed::ManagedConfig;
     let parse = |block: Value| {
         let values = json!({"ManagedProfiles": [{"Name": "P", "Endpoint": "https://llm-gateway.example/code", "ClaudeDesktop": block}]});
@@ -1357,10 +1358,31 @@ fn the_claude_desktop_block_of_a_managed_profile_is_optional_and_a_broken_one_is
     .unwrap();
     assert_eq!((sso.gateway_url.as_str(), sso.bearer_token_type), ("https://llm-gateway.example/desktop", BearerTokenType::AccessToken));
     assert!(sso.problems().is_empty());
+    assert_eq!(sso.credential_kind, CredentialKind::ExternalIdp);
     // `id_token` is the default; a block with missing values stays and reports what is wrong.
     let broken = parse(json!({})).unwrap();
     assert_eq!(broken.bearer_token_type, BearerTokenType::IdToken);
+    assert_eq!(broken.credential_kind, CredentialKind::ExternalIdp);
     assert!(!broken.problems().is_empty());
+    // `external-idp` is the default kind; an unknown one keeps the block and is reported.
+    let with_kind = |kind: &str| parse(json!({"OIDCIssuer": "https://login.example.test/t/v2.0", "OIDCClientID": "c1", "CredentialKind": kind})).unwrap();
+    assert_eq!(with_kind("").credential_kind, CredentialKind::ExternalIdp);
+    assert_eq!(with_kind("external-idp").credential_kind, CredentialKind::ExternalIdp);
+    assert_eq!(with_kind(" Interactive ").credential_kind, CredentialKind::Interactive);
+    assert!(with_kind("interactive").problems().is_empty() && with_kind("external-idp").problems().is_empty());
+    let bogus = with_kind("bogus");
+    assert_eq!(bogus.credential_kind, CredentialKind::Unknown);
+    assert_eq!(bogus.problems().len(), 1);
+    // Further keys are taken as they are; `AutoApply` is off unless set.
+    assert!(!sso.auto_apply && sso.config.is_empty());
+    let auto = parse(json!({"OIDCIssuer": "https://login.example.test/t/v2.0", "OIDCClientID": "c1", "AutoApply": true,
+        "Config": {"disableDeploymentModeChooser": true, "coworkEgressAllowedHosts": ["example.com"]}}))
+    .unwrap();
+    assert!(auto.auto_apply && auto.problems().is_empty());
+    assert_eq!(Value::Object(auto.config), json!({"disableDeploymentModeChooser": true, "coworkEgressAllowedHosts": ["example.com"]}));
+    // The installation without a click is a separate switch, off by default.
+    assert!(!ManagedConfig::from_values(&serde_json::Map::new()).claude_desktop_auto_install);
+    assert!(ManagedConfig::from_values(json!({"ClaudeDesktopAutoInstall": true}).as_object().unwrap()).claude_desktop_auto_install);
 }
 
 #[test]

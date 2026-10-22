@@ -17,6 +17,14 @@ pub struct Release {
 fn notes() -> Vec<(&'static str, Vec<String>)> {
     vec![
         (
+            "1.5.1",
+            vec![
+                l!("Claude Desktop meldet sich per SSO jetzt mit „external-idp“ an (ab Claude Desktop 2.7032.0); für ältere Versionen gibt es im Profil die Einstellung „Älter als 2.7032.0“."),
+                l!("Claude Desktop von der IT: KeyZapper installiert es auf Wunsch im Hintergrund und richtet die Konfiguration der Firma ohne Klick ein, auch mit weiteren Claude-Desktop-Einstellungen."),
+                l!("Claude Desktop wird jetzt auch eingerichtet, wenn die IT nur Update- oder Proxy-Einstellungen verteilt, und beim Entfernen wird die zuvor aktive Konfiguration wieder aktiv."),
+            ],
+        ),
+        (
             "1.5.0",
             vec![
                 l!("MCP-Server zentral verwalten: Die IT verteilt per Intune nur die Adresse einer Liste auf ihrem Server; KeyZapper lädt sie mit deiner SSO-Anmeldung und bietet die Server für jedes Projekt an."),

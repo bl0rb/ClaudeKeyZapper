@@ -610,6 +610,13 @@ pub struct AppState {
     /// then and written again on activation); the sign-in variant's entry does not name its profile itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_desktop_profile_id: Option<String>,
+    /// The configuration Claude Desktop applied before KeyZapper's entry; applied again when KeyZapper removes its entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_desktop_previous_applied: Option<String>,
+    /// Why the background installation of Claude Desktop (`ClaudeDesktopAutoInstall`) failed; while set, only an explicit
+    /// refresh tries again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_desktop_install_error: Option<String>,
 }
 
 impl Default for AppState {
@@ -625,6 +632,8 @@ impl Default for AppState {
             office_applied: None,
             office_error: None,
             claude_desktop_profile_id: None,
+            claude_desktop_previous_applied: None,
+            claude_desktop_install_error: None,
         }
     }
 }

@@ -208,13 +208,46 @@ fn refresh_mcp_catalog(app: &AppHandle) {
 /// Which Claude tools are installed and what Claude Desktop is set to.
 fn refresh_tools(app: &AppHandle) {
     let status = tools::status();
-    let recorded = with_model(app, |m| m.state.claude_desktop_profile_id.clone());
-    let desktop = claude_desktop::status(&claude_desktop::library_dir(), recorded.as_deref());
+    let (library, recorded) = with_model(app, |m| (m.desktop_library.clone(), m.state.claude_desktop_profile_id.clone()));
+    let desktop = claude_desktop::status(&library, recorded.as_deref());
     with_model(app, |m| {
         m.tools = Some(status);
         m.claude_desktop = desktop;
     });
     changed(app);
+}
+
+/// Installs a missing Claude Desktop in the background when IT asks for it (`ClaudeDesktopAutoInstall`), independent of the
+/// tools page and not while KeyZapper is deactivated. Called after the organisation's configuration was written, so the first
+/// launch already offers its sign-in. A failure is tried again only by an explicit refresh (`retry`).
+fn auto_install_claude_desktop(app: &AppHandle, retry: bool) {
+    let wanted = with_model(app, |m| m.config.claude_desktop_auto_install && !m.is_disabled() && (retry || m.state.claude_desktop_install_error.is_none()));
+    if !wanted {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if tools::desktop_installed() {
+            return with_model(&app, |m| m.record_desktop_install(None));
+        }
+        let start = with_model(&app, |m| {
+            let free = m.installing_tool.is_none();
+            if free {
+                m.installing_tool = Some(Tool::Desktop);
+            }
+            free
+        });
+        if !start {
+            return;
+        }
+        changed(&app);
+        let result = tools::install(Tool::Desktop);
+        with_model(&app, |m| {
+            m.installing_tool = None;
+            m.record_desktop_install(result.err());
+        });
+        refresh_tools(&app);
+    });
 }
 
 /// Stable releases only, unless beta releases are switched on (by default while a beta is installed).
@@ -257,6 +290,8 @@ fn start_background(app: &AppHandle) {
         refresh_mcp_catalog(&handle);
     });
     sync_office_later(app, false);
+    with_model(app, |m| m.auto_apply_claude_desktop());
+    auto_install_claude_desktop(app, false);
     let handle = app.clone();
     std::thread::spawn(move || check_updates(&handle, false));
     let handle = app.clone();
@@ -297,6 +332,9 @@ async fn refresh_all(app: AppHandle) -> View {
         if with_model(&app, |m| m.office_failed()) {
             sync_office_later(&app, true);
         }
+        // And restores the Claude Desktop setup IT asks for, and its installation if that failed.
+        with_model(&app, |m| m.auto_apply_claude_desktop());
+        auto_install_claude_desktop(&app, true);
         view(&app)
     })
     .await
