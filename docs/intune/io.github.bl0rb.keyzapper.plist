@@ -45,6 +45,8 @@
       <string>22222222-3333-4444-8555-666666666666</string>
       <key>BearerTokenType</key>
       <string>id_token</string>
+      <key>CredentialKind</key>
+      <string>external-idp</string>
     </dict>
     <key>Office</key>
     <dict>

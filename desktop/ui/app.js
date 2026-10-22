@@ -975,6 +975,7 @@ function profileEditor(existing) {
       enabled: !!existing?.claudeDesktop, gatewayUrl: existing?.claudeDesktop?.gatewayUrl ?? '', oidcIssuer: existing?.claudeDesktop?.oidcIssuer ?? '',
       oidcClientId: existing?.claudeDesktop?.oidcClientId ?? '', scopes: existing?.claudeDesktop?.scopes ?? '',
       bearerTokenType: existing?.claudeDesktop?.bearerTokenType ?? 'id_token',
+      credentialKind: existing?.claudeDesktop?.credentialKind === 'interactive' ? 'interactive' : 'external-idp',
     },
   };
   const managed = existing?.managed ?? false;
@@ -1087,6 +1088,9 @@ function profileEditor(existing) {
               h('option', { value: 'id_token', selected: s.claudeDesktop.bearerTokenType === 'id_token' }, t('ID-Token')),
               h('option', { value: 'access_token', selected: s.claudeDesktop.bearerTokenType === 'access_token' }, t('Access-Token'))), 'p-desktop-token'),
             field(t('Scopes'), input({ value: s.claudeDesktop.scopes, placeholder: t('Standard von Claude Desktop') }, (v) => { s.claudeDesktop.scopes = v; dlg.render(); }), 'p-desktop-scopes'),
+            field(t('Claude-Desktop-Version'), h('select', { onchange: (e) => { s.claudeDesktop.credentialKind = e.target.value; dlg.render(); } },
+              h('option', { value: 'external-idp', selected: s.claudeDesktop.credentialKind !== 'interactive' }, t('2.7032.0 oder neuer')),
+              h('option', { value: 'interactive', selected: s.claudeDesktop.credentialKind === 'interactive' }, t('Älter als 2.7032.0'))), 'p-desktop-kind'),
             desktopIssues.map((message) => h('div', { class: 'error-text' }, message))],
           h('div', { class: 'section-note' }, t('Mit diesem Profil meldet sich Claude Desktop im Browser selbst beim Identity Provider an und schickt sein Token an das Gateway; KeyZapper speichert dafür weder Key noch Token. Die Modelle listet das Gateway. Ohne diesen Schalter holt Claude Desktop Key oder Token über den Helper.'))),
       ],

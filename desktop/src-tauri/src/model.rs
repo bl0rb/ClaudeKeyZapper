@@ -4,7 +4,7 @@
 use keyzapper_core::audit::Finding;
 use keyzapper_core::backup::BackupPayload;
 use keyzapper_core::backup_store::BackupStore;
-use keyzapper_core::claude_desktop::{BearerTokenType, DesktopSso};
+use keyzapper_core::claude_desktop::{BearerTokenType, CredentialKind, DesktopSso};
 use keyzapper_core::claude_office::{self, office_profile, plan_retry, plan_sync, DesiredOffice, OfficeClient, OfficeStatus, Outcome, Sideload, SyncAction, SyncJob};
 use keyzapper_core::gateway::KeyBudget;
 use keyzapper_core::keys::{masked_hint, KeyStore};
@@ -133,6 +133,7 @@ pub struct DesktopSsoInput {
     pub oidc_client_id: String,
     pub scopes: String,
     pub bearer_token_type: BearerTokenType,
+    pub credential_kind: CredentialKind,
 }
 
 impl DesktopSsoInput {
@@ -144,6 +145,7 @@ impl DesktopSsoInput {
             oidc_client_id: self.oidc_client_id.trim().to_string(),
             scopes: self.scopes.trim().to_string(),
             bearer_token_type: self.bearer_token_type,
+            credential_kind: self.credential_kind,
         })
     }
 }
@@ -2389,5 +2391,20 @@ mod tests {
         assert!(checked && word_manifest.exists());
         assert_eq!(model.office_view().status.state, OfficeState::Applied);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_editor_input_of_claude_desktop_carries_the_credential_kind() {
+        let input = |enabled: bool| {
+            serde_json::from_value::<DesktopSsoInput>(serde_json::json!({
+                "enabled": enabled, "gatewayUrl": "", "oidcIssuer": " https://login.example.com/t/v2.0 ", "oidcClientId": "c1",
+                "scopes": "", "bearerTokenType": "id_token", "credentialKind": "interactive",
+            }))
+            .unwrap()
+        };
+        let sso = input(true).into_sso().unwrap();
+        assert_eq!(sso.credential_kind, CredentialKind::Interactive);
+        assert_eq!(sso.oidc_issuer, "https://login.example.com/t/v2.0");
+        assert!(input(false).into_sso().is_none());
     }
 }

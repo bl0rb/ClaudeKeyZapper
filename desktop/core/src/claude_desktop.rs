@@ -2,9 +2,10 @@
 //! configuration library (`Claude-3p/configLibrary/<id>.json`, `_meta.json` names the applied one). KeyZapper keeps
 //! one entry there: requests go to the profile's gateway, and Claude Desktop gets the key or SSO token from
 //! `keyzapper-helper` (`inferenceCredentialHelper`), just like Claude Code. A profile with a `DesktopSso` block instead
-//! lets Claude Desktop sign in itself with the gateway's own OIDC client (`inferenceCredentialKind: interactive`); then no
-//! key or token is involved at all. A configuration IT deploys via MDM profile or registry policy takes precedence over
-//! the library, so KeyZapper does not write one then.
+//! lets Claude Desktop sign in itself with the gateway's own OIDC client (`inferenceCredentialKind: external-idp`,
+//! or the older `interactive` spelling for Claude Desktop before 2.7032.0); then no key or token is involved at
+//! all. A configuration IT deploys via MDM profile or registry policy takes precedence over the library, so
+//! KeyZapper does not write one then.
 
 use crate::models::Profile;
 use crate::{json, l, paths};
@@ -29,13 +30,27 @@ pub struct Status {
     pub managed: bool,
 }
 
-/// The token Claude Desktop sends to the gateway as bearer (`inferenceGatewayOidc.bearerTokenType`).
+/// The token Claude Desktop sends to the gateway as bearer (`bearerTokenType` of the OIDC block).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BearerTokenType {
     #[default]
     IdToken,
     AccessToken,
+}
+
+/// How the sign-in block is spelled for Claude Desktop. `ExternalIdp` (`inferenceCredentialKind: external-idp` with
+/// `inferenceIdpOidc`) is read from Claude Desktop 2.7032.0 on; `Interactive` (`interactive` with `inferenceGatewayOidc`) is the
+/// older spelling every version reads. The fields of both blocks are identical. `Unknown` is an unrecognised `CredentialKind`
+/// from IT; `problems()` reports it and nothing is written.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CredentialKind {
+    #[default]
+    ExternalIdp,
+    Interactive,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Claude Desktop signs in itself with the gateway's OIDC client, which may differ from the one Claude Code uses
@@ -53,6 +68,8 @@ pub struct DesktopSso {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub scopes: String,
     pub bearer_token_type: BearerTokenType,
+    /// Spelling of the block; a stored block without it (KeyZapper 1.5.0) takes the default.
+    pub credential_kind: CredentialKind,
 }
 
 /// An https URL with host and without credentials.
@@ -81,6 +98,9 @@ impl DesktopSso {
         if self.bearer_token_type == BearerTokenType::AccessToken && self.scopes.trim().is_empty() {
             problems.push(l!("Mit Access-Token braucht Claude Desktop die Scopes des Gateways."));
         }
+        if self.credential_kind == CredentialKind::Unknown {
+            problems.push(l!("Die Anmeldeart für Claude Desktop (CredentialKind) muss „external-idp“ oder „interactive“ sein."));
+        }
         problems
     }
 }
@@ -99,7 +119,7 @@ pub fn library_dir() -> PathBuf {
 
 /// Gateway provider with `keyzapper-helper` as credential helper; the profile's model tiers become the model list
 /// (Sonnet first, the default), else Claude Desktop asks the gateway (`/v1/models`). With a `DesktopSso` block, the
-/// interactive sign-in instead.
+/// OIDC sign-in instead.
 pub fn configuration(profile: &Profile, helper: &str) -> Value {
     if let Some(sso) = &profile.claude_desktop {
         return sso_configuration(profile, sso);
@@ -130,8 +150,9 @@ pub fn configuration(profile: &Profile, helper: &str) -> Value {
     config
 }
 
-/// Interactive sign-in with the gateway's OIDC client (`inferenceGatewayOidc`): Claude Desktop signs in in the browser,
-/// keeps the refresh token itself and lists the gateway's models (`/v1/models`), which follow the user's access.
+/// Sign-in with the gateway's OIDC client: Claude Desktop signs in in the browser, keeps the refresh token itself and lists the
+/// gateway's models (`/v1/models`), which follow the user's access. `external-idp` with `inferenceIdpOidc`, or with
+/// `CredentialKind::Interactive` the older spelling `interactive` with `inferenceGatewayOidc`.
 fn sso_configuration(profile: &Profile, sso: &DesktopSso) -> Value {
     let mut oidc = json!({
         "issuer": sso.oidc_issuer,
@@ -142,12 +163,18 @@ fn sso_configuration(profile: &Profile, sso: &DesktopSso) -> Value {
     if !sso.scopes.trim().is_empty() {
         oidc["scopes"] = sso.scopes.trim().into();
     }
-    json!({
+    // `Unknown` never gets here: `problems()` stops it before `apply`.
+    let (kind, key) = match sso.credential_kind {
+        CredentialKind::Interactive => ("interactive", "inferenceGatewayOidc"),
+        CredentialKind::ExternalIdp | CredentialKind::Unknown => ("external-idp", "inferenceIdpOidc"),
+    };
+    let mut config = json!({
         "inferenceProvider": "gateway",
         "inferenceGatewayBaseUrl": sso.gateway(profile),
-        "inferenceCredentialKind": "interactive",
-        "inferenceGatewayOidc": oidc,
-    })
+        "inferenceCredentialKind": kind,
+    });
+    config[key] = oidc;
+    config
 }
 
 fn read(path: &Path) -> Option<json::Object> {
@@ -197,7 +224,11 @@ pub fn status(dir: &Path, recorded: Option<&str>) -> Status {
         let at = args.iter().position(|a| a == "--profile")?;
         args.get(at + 1)?.as_str().map(str::to_string)
     });
-    let signed_in = config.as_ref().filter(|config| config.contains_key("inferenceGatewayOidc")).and(recorded).map(str::to_string);
+    let signed_in = config
+        .as_ref()
+        .filter(|config| ["inferenceIdpOidc", "inferenceGatewayOidc"].iter().any(|key| config.contains_key(*key)))
+        .and(recorded)
+        .map(str::to_string);
     let profile_id = from_helper.or(signed_in);
     let applied = profile_id.is_some() && read(&dir.join(META_FILE)).and_then(|m| m.get("appliedId")?.as_str().map(str::to_string)).as_deref() == Some(ENTRY_ID);
     Status { profile_id, applied, managed: managed_by_it() }
@@ -247,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn a_desktop_sso_block_writes_the_interactive_sign_in_without_any_secret() {
+    fn a_desktop_sso_block_writes_the_external_idp_sign_in_without_any_secret() {
         let mut profile = Profile::new("A1B2C3D4-0000-4000-8000-000000000001".into(), "Team".into(), "https://llm.firma.example/code".into(), String::new());
         profile.sonnet_model = Some("eu.sonnet".into());
         let mut sso = DesktopSso {
@@ -263,8 +294,8 @@ mod tests {
             json!({
                 "inferenceProvider": "gateway",
                 "inferenceGatewayBaseUrl": "https://llm.firma.example/code",
-                "inferenceCredentialKind": "interactive",
-                "inferenceGatewayOidc": {
+                "inferenceCredentialKind": "external-idp",
+                "inferenceIdpOidc": {
                     "issuer": "https://login.microsoftonline.com/00000000-0000-4000-8000-000000000000/v2.0",
                     "clientId": "11111111-2222-4333-8444-555555555555",
                     "bearerTokenType": "id_token",
@@ -281,8 +312,9 @@ mod tests {
         profile.claude_desktop = Some(sso.clone());
         let config = configuration(&profile, "helper");
         assert_eq!(config["inferenceGatewayBaseUrl"], "https://llm.firma.example/desktop");
-        assert_eq!(config["inferenceGatewayOidc"]["bearerTokenType"], "access_token");
-        assert_eq!(config["inferenceGatewayOidc"]["scopes"], "api://gateway/.default");
+        assert_eq!(config["inferenceIdpOidc"]["bearerTokenType"], "access_token");
+        assert_eq!(config["inferenceIdpOidc"]["scopes"], "api://gateway/.default");
+        assert!(config.get("inferenceGatewayOidc").is_none());
         // No helper, no key, no token; the gateway lists the models itself.
         let text = config.to_string();
         assert!(!text.contains("helper") && !text.contains("inferenceModels") && !text.contains("eu.sonnet"));
@@ -298,6 +330,88 @@ mod tests {
         remove(&dir).unwrap();
         assert_eq!(status(&dir, Some(profile.id.as_str())).profile_id, None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_interactive_credential_kind_keeps_the_older_spelling() {
+        let mut profile = Profile::new("A1B2C3D4-0000-4000-8000-000000000001".into(), "Team".into(), "https://llm.example.com/code".into(), String::new());
+        let mut sso = DesktopSso {
+            oidc_issuer: "https://login.example.com/00000000-0000-4000-8000-000000000000/v2.0".into(),
+            oidc_client_id: "11111111-2222-4333-8444-555555555555".into(),
+            credential_kind: CredentialKind::Interactive,
+            ..DesktopSso::default()
+        };
+        assert!(sso.problems().is_empty());
+        profile.claude_desktop = Some(sso.clone());
+        let old = configuration(&profile, "helper");
+        assert_eq!(
+            old,
+            json!({
+                "inferenceProvider": "gateway",
+                "inferenceGatewayBaseUrl": "https://llm.example.com/code",
+                "inferenceCredentialKind": "interactive",
+                "inferenceGatewayOidc": {
+                    "issuer": "https://login.example.com/00000000-0000-4000-8000-000000000000/v2.0",
+                    "clientId": "11111111-2222-4333-8444-555555555555",
+                    "bearerTokenType": "id_token",
+                    "appendOfflineAccess": true,
+                },
+            })
+        );
+        // Both spellings carry the same fields.
+        sso.credential_kind = CredentialKind::ExternalIdp;
+        profile.claude_desktop = Some(sso);
+        let new = configuration(&profile, "helper");
+        assert_eq!(new["inferenceCredentialKind"], "external-idp");
+        assert_eq!(new["inferenceIdpOidc"], old["inferenceGatewayOidc"]);
+    }
+
+    #[test]
+    fn status_recognises_both_spellings_of_the_sign_in_entry() {
+        const ID: &str = "A1B2C3D4-0000-4000-8000-000000000001";
+        let dir = std::env::temp_dir().join(format!("keyzapper-claude-desktop-kind-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(META_FILE), json!({"appliedId": ENTRY_ID, "entries": [{"id": ENTRY_ID, "name": "KeyZapper"}]}).to_string()).unwrap();
+        let entry = dir.join(format!("{ENTRY_ID}.json"));
+        for key in ["inferenceIdpOidc", "inferenceGatewayOidc"] {
+            let config = json!({"inferenceProvider": "gateway", "inferenceGatewayBaseUrl": "https://llm.example.com", key: {"issuer": "https://login.example.com/t/v2.0", "clientId": "c1"}});
+            std::fs::write(&entry, config.to_string()).unwrap();
+            let found = status(&dir, Some(ID));
+            assert_eq!((found.profile_id.as_deref(), found.applied), (Some(ID), true), "{key}");
+            assert_eq!(status(&dir, None).profile_id, None, "{key}");
+        }
+        std::fs::write(&entry, r#"{"inferenceProvider":"gateway"}"#).unwrap();
+        assert_eq!(status(&dir, Some(ID)).profile_id, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn credential_kind_defaults_round_trips_and_flags_unknown_values() {
+        // A block stored by KeyZapper 1.5.0 has no `credentialKind`.
+        let stored: DesktopSso =
+            serde_json::from_value(json!({"oidcIssuer": "https://login.example.com/t/v2.0", "oidcClientId": "c1", "bearerTokenType": "id_token"})).unwrap();
+        assert_eq!(stored.credential_kind, CredentialKind::ExternalIdp);
+        assert_eq!(serde_json::to_value(&stored).unwrap()["credentialKind"], "external-idp");
+        let interactive = DesktopSso { credential_kind: CredentialKind::Interactive, ..stored.clone() };
+        let value = serde_json::to_value(&interactive).unwrap();
+        assert_eq!(value["credentialKind"], "interactive");
+        assert_eq!(serde_json::from_value::<DesktopSso>(value).unwrap().credential_kind, CredentialKind::Interactive);
+        let unknown: DesktopSso = serde_json::from_value(json!({"credentialKind": "bogus"})).unwrap();
+        assert_eq!(unknown.credential_kind, CredentialKind::Unknown);
+        // What `state.json` holds for it reads back as `Unknown`.
+        let stored = serde_json::to_value(&unknown).unwrap();
+        assert_eq!(stored["credentialKind"], "unknown");
+        assert_eq!(serde_json::from_value::<DesktopSso>(stored).unwrap().credential_kind, CredentialKind::Unknown);
+        // An unknown kind is the one problem; the same block with a known kind has none.
+        let block = |credential_kind| DesktopSso {
+            oidc_issuer: "https://login.example.com/t/v2.0".into(),
+            oidc_client_id: "c1".into(),
+            credential_kind,
+            ..DesktopSso::default()
+        };
+        assert_eq!(block(CredentialKind::Unknown).problems().len(), 1);
+        assert!(block(CredentialKind::ExternalIdp).problems().is_empty());
+        assert!(block(CredentialKind::Interactive).problems().is_empty());
     }
 
     #[test]

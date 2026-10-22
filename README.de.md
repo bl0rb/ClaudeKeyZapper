@@ -264,7 +264,7 @@ Verwaltete Einstellungen haben Vorrang vor Projekteinstellungen; KeyZapper brich
 | Schlüssel | Typ | Wirkung |
 |---|---|---|
 | `ManagedProfiles` | Array von Dicts: `Name`, `Endpoint`, optional `OpusModel`, `SonnetModel`, `HaikuModel`, `ModelAlias`, `Environment` (Dict), `ID`, `Type` (`apiKey` Standard oder `oidc`), `OIDCIssuer`, `OIDCClientID`, `OIDCScope`, `OIDCTokenType`, `Office`, `ClaudeDesktop` (Dicts, siehe unten) | Profile werden automatisch angelegt und sind nicht editier- oder löschbar; Entwickler tragen nur den Key ein (oder melden sich für SSO an). Ohne `ID` wird die Profil-ID aus `Name` abgeleitet, eine Umbenennung erzeugt also ein neues Profil. Bei SSO (`oidc`) sind `OIDCIssuer` und `OIDCClientID` erforderlich; `OIDCScope` Standard `openid profile offline_access`; `OIDCTokenType` ist `access` (Standard) oder `id`, andere Werte verwerfen das Profil. |
-| `ClaudeDesktop` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL` (Standard: `Endpoint` des Profils), `Scopes`, `BearerTokenType` (`id_token` Standard oder `access_token`) | Claude Desktop meldet sich selbst mit dem OIDC-Client des Gateways an, wenn dieses Profil dafür gewählt ist (siehe [Claude-Tools](#claude-tools)). Ein Block mit unbrauchbaren Werten bleibt erhalten; KeyZapper schreibt dann nichts für Claude Desktop. |
+| `ClaudeDesktop` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL` (Standard: `Endpoint` des Profils), `Scopes`, `BearerTokenType` (`id_token` Standard oder `access_token`), `CredentialKind` (`external-idp` Standard oder `interactive`) | Claude Desktop meldet sich selbst mit dem OIDC-Client des Gateways an, wenn dieses Profil dafür gewählt ist (siehe [Claude-Tools](#claude-tools)). `external-idp` braucht Claude Desktop ab 2.7032.0; solange ältere Versionen im Einsatz sind, `interactive` setzen. Ein Block mit unbrauchbaren Werten (auch ein unbekanntes `CredentialKind`) bleibt erhalten; KeyZapper schreibt dann nichts für Claude Desktop. |
 | `Office` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `Enabled` (Bool, Standard `true`), `AddinID`, `GatewayURL`, `EntraClientID`, `EntraScope`, `DisabledFeatures` (Array oder kommagetrennter String) | Richtet [Claude in Microsoft 365](#claude-in-microsoft-365-über-das-profil) aus diesem Profil ein. Werte werden getrimmt. Ein Block mit unbrauchbaren Werten bleibt erhalten und wird in der Profilkarte gemeldet; dann wird nichts geschrieben. |
 | `AllowedGatewayHosts` | Array von Strings (`host` oder `*.domain`) | Profile nur für diese Hosts. Der Helper gibt Keys für andere Hosts nicht heraus (Exit 78). Gilt nur für den Gateway-Host; der IdP-Host muss nicht gelistet sein. Leer bedeutet keine Einschränkung. |
 | `DefaultEndpoint`, `DefaultModelAlias` | String | Vorbelegung beim Anlegen eigener Profile |
@@ -374,9 +374,12 @@ dann nichts, die Seite weist darauf hin. Beim Deaktivieren entfernt KeyZapper de
 **Claude Desktop mit eigener SSO-Anmeldung:** Hat das Gateway einen eigenen OIDC-Client für Claude Desktop (andere Client-ID
 oder Gateway-Route als Claude Code), im Profil *Claude Desktop (SSO)* einschalten und Issuer, Client-ID sowie optional
 Gateway-URL, Scopes und Token-Art angeben (`id_token` Standard, `access_token` braucht die Scopes des Gateways). KeyZapper
-schreibt dann statt des Helpers die interaktive Anmeldung (`inferenceCredentialKind: interactive`, `inferenceGatewayOidc`):
-Claude Desktop meldet sich im Browser an, verwahrt sein Token selbst und listet die Modelle des Gateways (`/v1/models`). Es
-wird weder Key noch Token geschrieben. Die IT setzt das mit einem `ClaudeDesktop`-Dict in `ManagedProfiles`.
+schreibt dann statt des Helpers die Anmeldung über einen externen Identity Provider (`inferenceCredentialKind: external-idp`,
+`inferenceIdpOidc`; Claude Desktop ab 2.7032.0): Claude Desktop meldet sich im Browser an, verwahrt sein Token selbst und listet
+die Modelle des Gateways (`/v1/models`). Es wird weder Key noch Token geschrieben. Für ältere Claude-Desktop-Versionen im Feld
+*Claude-Desktop-Version* des Profils *Älter als 2.7032.0* wählen: KeyZapper schreibt dann die ältere Schreibweise (`interactive`,
+`inferenceGatewayOidc`), die neuere Versionen als dieselbe Anmeldung lesen. Die IT setzt das mit einem `ClaudeDesktop`-Dict in
+`ManagedProfiles` (`CredentialKind`: `external-idp` oder `interactive`).
 
 ## KeyZapper deaktivieren
 

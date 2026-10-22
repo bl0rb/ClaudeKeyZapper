@@ -2,7 +2,7 @@
 //! (read through CFPreferences, so `/Library/Managed Preferences` wins). Windows: registry policy values under
 //! `HKLM\SOFTWARE\Policies\KeyZapper` (or HKCU), same names; `ManagedProfiles` is a JSON string there.
 
-use crate::claude_desktop::{BearerTokenType, DesktopSso};
+use crate::claude_desktop::{BearerTokenType, CredentialKind, DesktopSso};
 use crate::claude_office::OfficeClient;
 use crate::models::{AuthType, OidcTokenType};
 use serde_json::{Map, Value};
@@ -42,7 +42,8 @@ pub struct ManagedConfig {
     /// and an optional `Office` dict (Claude in Microsoft 365): `Enabled` (default on), `AddinID`, `GatewayURL`,
     /// `EntraClientID`, `EntraScope`, `DisabledFeatures` (array or comma separated string); an optional `ClaudeDesktop`
     /// dict (Claude Desktop signs in itself): `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL`, `Scopes` and
-    /// `BearerTokenType` (`id_token` default | `access_token`).
+    /// `BearerTokenType` (`id_token` default | `access_token`) and `CredentialKind` (`external-idp` default | `interactive`,
+    /// the older spelling for Claude Desktop before 2.7032.0; anything else makes `problems()` report the block).
     pub profiles: Vec<ManagedProfile>,
     /// `AllowedGatewayHosts`: exact hosts or `*.domain`; empty = no restriction.
     pub allowed_gateway_hosts: Vec<String>,
@@ -209,6 +210,11 @@ fn desktop_sso(dict: &Map<String, Value>) -> DesktopSso {
         bearer_token_type: match text("BearerTokenType").to_lowercase().as_str() {
             "access_token" | "access" => BearerTokenType::AccessToken,
             _ => BearerTokenType::IdToken,
+        },
+        credential_kind: match text("CredentialKind").to_lowercase().as_str() {
+            "" | "external-idp" => CredentialKind::ExternalIdp,
+            "interactive" => CredentialKind::Interactive,
+            _ => CredentialKind::Unknown,
         },
     }
 }
