@@ -179,7 +179,8 @@ fn toggle_popover(app: &AppHandle, rect: Rect) {
     place(&window);
     let _ = window.show();
     let _ = window.set_focus();
-    let _ = window.emit("popover-shown", ());
+    // `window.emit` would reach every webview, hidden ones too (see `changed`).
+    let _ = app.emit_to(POPOVER, "popover-shown", ());
     if with_model(app, |m| m.usage_refreshed_at.is_none_or(|at| at.elapsed() > USAGE_MAX_AGE)) {
         refresh_usage(app);
     }
