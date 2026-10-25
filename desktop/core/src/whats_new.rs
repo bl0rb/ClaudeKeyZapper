@@ -17,6 +17,12 @@ pub struct Release {
 fn notes() -> Vec<(&'static str, Vec<String>)> {
     vec![
         (
+            "1.5.2",
+            vec![
+                l!("KeyZapper braucht im Tray praktisch keine CPU mehr: Versteckte Fenster bekommen keine Ereignisse mehr und holen ihren Stand erst beim Einblenden."),
+            ],
+        ),
+        (
             "1.5.1",
             vec![
                 l!("Claude Desktop meldet sich per SSO jetzt mit „external-idp“ an (ab Claude Desktop 2.7032.0); für ältere Versionen gibt es im Profil die Einstellung „Älter als 2.7032.0“."),
