@@ -353,6 +353,7 @@
  "KeyZapper Entwicklungsversion": "KeyZapper development build",
  "KeyZapper aktiv": "KeyZapper active",
  "KeyZapper beenden": "Quit KeyZapper",
+ "KeyZapper braucht im Tray praktisch keine CPU mehr: Versteckte Fenster bekommen keine Ereignisse mehr und holen ihren Stand erst beim Einblenden.": "KeyZapper now needs practically no CPU while in the tray: hidden windows no longer receive events and fetch their state only when shown.",
  "KeyZapper deaktivieren?": "Deactivate KeyZapper?",
  "KeyZapper entfernt seine Einträge aus allen Projekten und aus ~/.claude/settings.json. Die Zuordnungen bleiben gespeichert und werden beim Aktivieren wieder geschrieben.": "KeyZapper removes its entries from all projects and from ~/.claude/settings.json. The assignments stay saved and are written again when activating.",
  "KeyZapper ist deaktiviert": "KeyZapper is deactivated",
