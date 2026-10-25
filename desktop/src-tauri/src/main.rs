@@ -32,9 +32,14 @@ fn view(app: &AppHandle) -> View {
     view
 }
 
-/// Tells the window to fetch a new view.
+/// Tells the open windows to fetch a new view. A window waiting hidden in the tray is left alone: after an event,
+/// WebKit keeps a hidden window on the display link for good (constant CPU load). It fetches a new view when shown.
 fn changed(app: &AppHandle) {
-    let _ = app.emit("changed", ());
+    for (label, window) in app.webview_windows() {
+        if window.is_visible().unwrap_or(false) {
+            let _ = app.emit_to(label.as_str(), "changed", ());
+        }
+    }
     tray::update(app);
 }
 
@@ -45,6 +50,8 @@ fn show_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        // Hidden windows get no `changed` events; the window catches up now.
+        let _ = app.emit_to("main", "changed", ());
     }
 }
 
