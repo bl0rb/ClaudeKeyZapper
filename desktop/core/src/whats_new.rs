@@ -17,7 +17,7 @@ pub struct Release {
 fn notes() -> Vec<(&'static str, Vec<String>)> {
     vec![
         (
-            "1.5.2",
+            "1.5.3",
             vec![
                 l!("KeyZapper braucht im Tray praktisch keine CPU mehr: Versteckte Fenster bekommen keine Ereignisse mehr und holen ihren Stand erst beim Einblenden."),
             ],
