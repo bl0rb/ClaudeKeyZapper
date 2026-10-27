@@ -230,6 +230,7 @@ impl Model {
     /// Loads from `data_dir` with the managed settings `config` as given. Tests pass an empty config and a temporary folder,
     /// so they neither read the real managed preferences nor write the real data or backup folder.
     fn load_from(version: Option<String>, config: ManagedConfig, data_dir: PathBuf) -> Self {
+        keyzapper_core::proxy::configure(config.proxy_url.clone(), config.ignore_download_certificate_errors);
         let backup_dir = BackupStore::directory(&config);
         let metadata = MetadataStore::new(data_dir.join("state.json"), true);
         let mut model = Model {
@@ -403,8 +404,15 @@ impl Model {
             profile.oidc_client_id = managed.oidc_client_id.clone();
             profile.oidc_scope = managed.oidc_scope.clone();
             profile.oidc_token_type = managed.oidc_token_type;
-            profile.office = managed.office.clone();
-            profile.claude_desktop = managed.claude_desktop.clone();
+            // Claude in Office and Claude Desktop's sign-in are IT's where it sets them; otherwise the user's own block
+            // stays, so a managed profile can be tried with them (a block IT drops stays as the user's own until it is
+            // switched off).
+            if managed.office.is_some() {
+                profile.office = managed.office.clone();
+            }
+            if managed.claude_desktop.is_some() {
+                profile.claude_desktop = managed.claude_desktop.clone();
+            }
             if self.state.profile(&managed.id) != Some(&profile) {
                 self.save_profile(profile, None);
             }
@@ -456,16 +464,19 @@ impl Model {
         }
         // `Some(None)`: Office removed from the profile. `None`: an editor that sent nothing leaves it as it is.
         let office: Option<Option<OfficeClient>> = if subscription { Some(None) } else { input.office.map(OfficeInput::into_client) };
-        let managed = existing.as_ref().is_some_and(|p| self.config.is_managed(&p.id));
+        // Of a managed profile only Claude in Office and Claude Desktop's sign-in can be changed, and only where IT sets neither.
+        let managed = existing.as_ref().and_then(|p| self.config.profiles.iter().find(|m| m.id == p.id));
+        let office_locked = managed.is_some_and(|m| m.office.is_some());
+        let desktop_locked = managed.is_some_and(|m| m.claude_desktop.is_some());
         // Office settings that are switched on must be usable; switched off they may stay half filled.
-        if let Some(Some(office)) = office.as_ref().filter(|_| !managed) {
+        if let Some(Some(office)) = office.as_ref().filter(|_| !office_locked) {
             if let Some(message) = office.enabled.then(|| self.office_blocker(office)).flatten() {
                 self.error = Some(message);
                 return false;
             }
         }
         let desktop: Option<Option<DesktopSso>> = if subscription { Some(None) } else { input.claude_desktop.map(DesktopSsoInput::into_sso) };
-        if let Some(Some(desktop)) = desktop.as_ref().filter(|_| !managed) {
+        if let Some(Some(desktop)) = desktop.as_ref().filter(|_| !desktop_locked) {
             let mut problems = desktop.problems();
             if problems.is_empty() && !desktop.gateway_url.is_empty() && !self.config.is_endpoint_allowed(&desktop.gateway_url) {
                 problems.push(self.not_allowed_message(&desktop.gateway_url));
@@ -499,12 +510,6 @@ impl Model {
             if subscription {
                 profile.auth_type = AuthType::Subscription;
             }
-            if let Some(office) = office {
-                profile.office = office;
-            }
-            if let Some(desktop) = desktop {
-                profile.claude_desktop = desktop;
-            }
             if sso {
                 profile.auth_type = AuthType::Oidc;
                 profile.oidc_issuer = Some(input.oidc_issuer.trim().to_string());
@@ -512,6 +517,12 @@ impl Model {
                 profile.oidc_scope = non_empty(&input.oidc_scope);
                 profile.oidc_token_type = input.oidc_token_type;
             }
+        }
+        if let Some(office) = office.filter(|_| !office_locked) {
+            profile.office = office;
+        }
+        if let Some(desktop) = desktop.filter(|_| !desktop_locked) {
+            profile.claude_desktop = desktop;
         }
         self.save_profile(profile, (!sso && !subscription).then_some(input.key))
     }
@@ -1767,6 +1778,8 @@ impl Model {
                         haiku_model: p.haiku_model.clone(),
                         environment_text: Profile::format_environment(p.environment.as_ref()),
                         managed: self.config.is_managed(&p.id),
+                        office_managed: self.config.profiles.iter().any(|m| m.id == p.id && m.office.is_some()),
+                        claude_desktop_managed: self.config.profiles.iter().any(|m| m.id == p.id && m.claude_desktop.is_some()),
                         has_key: key.is_some(),
                         key_hint: key.map(|k| masked_hint(k)),
                         budgets: self
@@ -2031,6 +2044,9 @@ struct ProfileView {
     haiku_model: Option<String>,
     environment_text: String,
     managed: bool,
+    /// IT sets Claude in Office / Claude Desktop's sign-in for this managed profile; the user cannot change them then.
+    office_managed: bool,
+    claude_desktop_managed: bool,
     has_key: bool,
     key_hint: Option<String>,
     /// One per tenant of an SSO profile's projects, else at most one; empty while unknown.
@@ -2354,6 +2370,50 @@ mod tests {
         model.auto_apply_claude_desktop();
         assert!(!model.desktop_library.join(format!("{}.json", claude_desktop::ENTRY_ID)).exists());
         assert!(model.view().claude_desktop.problem.is_some() && model.error.is_none(), "{:?}", model.error);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_managed_profile_takes_the_users_claude_desktop_sign_in_unless_it_sets_one() {
+        let root = std::env::temp_dir().join(format!("kz-managed-own-desktop-{}", new_id()));
+        let managed = |with_block: bool| {
+            let mut profile = serde_json::json!({"Name": "Firma", "Endpoint": "https://llm-gateway.example/code"});
+            if with_block {
+                profile["ClaudeDesktop"] = serde_json::json!({"OIDCIssuer": "https://login.example.test/t/v2.0", "OIDCClientID": "it-client"});
+            }
+            serde_json::json!([profile])
+        };
+        let mut model = managed_model(&root, managed(false));
+        let id = model.state.profiles[0].id.clone();
+        let input = |enabled: bool| ProfileInput {
+            id: Some(id.clone()), name: "Umbenannt".into(), endpoint: "https://llm-gateway.example/code".into(), model_alias: String::new(),
+            opus_model: String::new(), sonnet_model: String::new(), haiku_model: String::new(), environment_text: String::new(), key: String::new(),
+            auth_type: AuthType::ApiKey, oidc_issuer: String::new(), oidc_client_id: String::new(), oidc_scope: String::new(), oidc_token_type: OidcTokenType::Access,
+            office: None,
+            claude_desktop: Some(DesktopSsoInput { enabled, gateway_url: String::new(), oidc_issuer: "https://login.example.test/t/v2.0".into(), oidc_client_id: "own-client".into(),
+                scopes: String::new(), bearer_token_type: BearerTokenType::IdToken, credential_kind: CredentialKind::Interactive }),
+        };
+        // IT sets no block: the user's own is taken, the rest of the profile stays IT's.
+        assert!(model.save_profile_input(input(true)), "{:?}", model.error);
+        let profile = model.state.profiles[0].clone();
+        assert_eq!((profile.name.as_str(), profile.claude_desktop.as_ref().map(|d| d.oidc_client_id.as_str())), ("Firma", Some("own-client")));
+        let view = model.view();
+        assert!(view.profiles[0].managed && !view.profiles[0].claude_desktop_managed);
+        // It survives the sync with Intune and a restart.
+        model.sync_managed_profiles();
+        assert_eq!(model.state.profiles[0].claude_desktop.as_ref().map(|d| d.oidc_client_id.as_str()), Some("own-client"));
+        let reloaded = managed_model(&root, managed(false));
+        assert_eq!(reloaded.state.profiles[0].claude_desktop.as_ref().map(|d| d.oidc_client_id.as_str()), Some("own-client"));
+        // Switched off again, it goes.
+        assert!(model.save_profile_input(input(false)), "{:?}", model.error);
+        assert!(model.state.profiles[0].claude_desktop.is_none());
+
+        // IT sets the block: it wins, and the editor cannot change or remove it.
+        let mut model = managed_model(&root, managed(true));
+        assert_eq!(model.state.profiles[0].claude_desktop.as_ref().map(|d| d.oidc_client_id.as_str()), Some("it-client"));
+        assert!(model.view().profiles[0].claude_desktop_managed);
+        assert!(model.save_profile_input(input(false)), "{:?}", model.error);
+        assert_eq!(model.state.profiles[0].claude_desktop.as_ref().map(|d| d.oidc_client_id.as_str()), Some("it-client"));
         let _ = std::fs::remove_dir_all(&root);
     }
 

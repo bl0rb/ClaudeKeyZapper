@@ -10,10 +10,10 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 pub const DOMAIN: &str = "io.github.bl0rb.keyzapper";
-pub const KEYS: [&str; 12] = [
+pub const KEYS: [&str; 14] = [
     "ManagedProfiles", "AllowedGatewayHosts", "DefaultEndpoint", "DefaultModelAlias", "MinimumClaudeCodeVersion",
     "OneDriveBackup", "BackupDirectory", "UpdateCheckEnabled", "AllowKeyExport", "ManagedMcpServersURL", "ClaudeToolsEnabled",
-    "ClaudeDesktopAutoInstall",
+    "ClaudeDesktopAutoInstall", "ProxyURL", "IgnoreDownloadCertificateErrors",
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -68,6 +68,12 @@ pub struct ManagedConfig {
     pub claude_tools_enabled: bool,
     /// `ClaudeDesktopAutoInstall`: install a missing Claude Desktop in the background, independent of the tools page (default off).
     pub claude_desktop_auto_install: bool,
+    /// `ProxyURL`: proxy for KeyZapper's own internet traffic (update check, downloads from GitHub and claude.ai), e.g.
+    /// `http://proxy.firma.example:3128`; without it the environment variables and the system proxy apply (see `proxy`).
+    pub proxy_url: Option<String>,
+    /// `IgnoreDownloadCertificateErrors`: the internet traffic accepts certificates the system does not trust, for a proxy
+    /// with TLS inspection whose root certificate is not installed (default off). Packages stay protected by their signature.
+    pub ignore_download_certificate_errors: bool,
 }
 
 impl Default for ManagedConfig {
@@ -118,6 +124,8 @@ impl ManagedConfig {
             managed_mcp_servers_url: as_string(values.get("ManagedMcpServersURL")).map(|u| u.trim().to_string()).filter(|u| !u.is_empty()),
             claude_tools_enabled: as_bool(values.get("ClaudeToolsEnabled")).unwrap_or(true),
             claude_desktop_auto_install: as_bool(values.get("ClaudeDesktopAutoInstall")).unwrap_or(false),
+            proxy_url: as_string(values.get("ProxyURL")).map(|u| u.trim().to_string()).filter(|u| !u.is_empty()),
+            ignore_download_certificate_errors: as_bool(values.get("IgnoreDownloadCertificateErrors")).unwrap_or(false),
         }
     }
 
@@ -420,10 +428,14 @@ mod tests {
         assert!(!config.allow_key_export && config.update_check_enabled);
         assert!(ManagedConfig::default().allow_key_export && ManagedConfig::default().claude_tools_enabled);
         assert_eq!(ManagedConfig::default().managed_mcp_servers_url, None);
-        let values = json!({"ManagedMcpServersURL": " https://sso.firma.example/keyzapper/mcp.json ", "ClaudeToolsEnabled": 0});
+        let values = json!({"ManagedMcpServersURL": " https://sso.firma.example/keyzapper/mcp.json ", "ClaudeToolsEnabled": 0, "ProxyURL": " http://proxy.firma.example:3128 "});
         let config = ManagedConfig::from_values(values.as_object().unwrap());
         assert_eq!(config.managed_mcp_servers_url.as_deref(), Some("https://sso.firma.example/keyzapper/mcp.json"));
         assert!(!config.claude_tools_enabled);
+        assert_eq!(config.proxy_url.as_deref(), Some("http://proxy.firma.example:3128"));
+        assert_eq!(ManagedConfig::from_values(json!({"ProxyURL": "  "}).as_object().unwrap()).proxy_url, None);
+        assert!(!config.ignore_download_certificate_errors);
+        assert!(ManagedConfig::from_values(json!({"IgnoreDownloadCertificateErrors": true}).as_object().unwrap()).ignore_download_certificate_errors);
     }
 
     #[test]

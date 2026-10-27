@@ -250,12 +250,12 @@ wählen, dann `/Applications/KeyZapper.app` löschen. Unter Windows die MSI übe
 ### Konfiguration
 
 **macOS:** *Geräte › Konfiguration › Erstellen › macOS › Vorlagen › Einstellungsdatei (Preference file)*, Domäne `io.github.bl0rb.keyzapper`.
-Vorlage: [docs/intune/io.github.bl0rb.keyzapper.plist](docs/intune/io.github.bl0rb.keyzapper.plist). Sie enthält nur
+Vorlage mit allen Schlüsseln: [docs/intune/io.github.bl0rb.keyzapper.plist](docs/intune/io.github.bl0rb.keyzapper.plist). Sie enthält nur
 Schlüssel-Wert-Paare ohne `<plist>`/`<dict>`-Rahmen, wie Intune es verlangt.
 
 **Windows:** Dieselben Schlüssel werden als Registrywerte unter `HKLM\SOFTWARE\Policies\KeyZapper` (Computer-Richtlinie hat Vorrang) bzw. `HKCU\SOFTWARE\Policies\KeyZapper` gelesen:
 Zeichenfolgen als `REG_SZ`, Listen als `REG_MULTI_SZ`, Schalter als `REG_DWORD` 0/1, `ManagedProfiles` als JSON-Array in einem `REG_SZ`.
-Vorlage: [docs/intune/keyzapper-windows.reg](docs/intune/keyzapper-windows.reg) (z. B. per PowerShell-Skript oder Einstellungskatalog verteilen).
+Vorlage mit allen Schlüsseln: [docs/intune/keyzapper-windows.reg](docs/intune/keyzapper-windows.reg) (z. B. per PowerShell-Skript oder Einstellungskatalog verteilen).
 
 **Wichtig:** Für Benutzer, die SSO-Profile per verwalteten Einstellungen erhalten, nicht `apiKeyHelper`, `env.ANTHROPIC_BASE_URL`,
 `ANTHROPIC_API_KEY` oder `ANTHROPIC_AUTH_TOKEN` in `managed-settings.json` (oder `managed-settings.d/*.json`) setzen.
@@ -263,9 +263,9 @@ Verwaltete Einstellungen haben Vorrang vor Projekteinstellungen; KeyZapper brich
 
 | Schlüssel | Typ | Wirkung |
 |---|---|---|
-| `ManagedProfiles` | Array von Dicts: `Name`, `Endpoint`, optional `OpusModel`, `SonnetModel`, `HaikuModel`, `ModelAlias`, `Environment` (Dict), `ID`, `Type` (`apiKey` Standard oder `oidc`), `OIDCIssuer`, `OIDCClientID`, `OIDCScope`, `OIDCTokenType`, `Office`, `ClaudeDesktop` (Dicts, siehe unten) | Profile werden automatisch angelegt und sind nicht editier- oder löschbar; Entwickler tragen nur den Key ein (oder melden sich für SSO an). Ohne `ID` wird die Profil-ID aus `Name` abgeleitet, eine Umbenennung erzeugt also ein neues Profil. Bei SSO (`oidc`) sind `OIDCIssuer` und `OIDCClientID` erforderlich; `OIDCScope` Standard `openid profile offline_access`; `OIDCTokenType` ist `access` (Standard) oder `id`, andere Werte verwerfen das Profil. |
-| `ClaudeDesktop` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL` (Standard: `Endpoint` des Profils), `Scopes`, `BearerTokenType` (`id_token` Standard oder `access_token`), `CredentialKind` (`external-idp` Standard oder `interactive`), `Config` (Dict weiterer Claude-Desktop-Schlüssel), `AutoApply` (Bool, Standard `false`) | Claude Desktop meldet sich selbst mit dem OIDC-Client des Gateways an, wenn dieses Profil dafür gewählt ist (siehe [Claude-Tools](#claude-tools)). `external-idp` braucht Claude Desktop ab 2.7032.0; solange ältere Versionen im Einsatz sind, `interactive` setzen. Ein Block mit unbrauchbaren Werten (auch ein unbekanntes `CredentialKind`) bleibt erhalten; KeyZapper schreibt dann nichts für Claude Desktop. |
-| `Office` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `Enabled` (Bool, Standard `true`), `AddinID`, `GatewayURL`, `EntraClientID`, `EntraScope`, `DisabledFeatures` (Array oder kommagetrennter String) | Richtet [Claude in Microsoft 365](#claude-in-microsoft-365-über-das-profil) aus diesem Profil ein. Werte werden getrimmt. Ein Block mit unbrauchbaren Werten bleibt erhalten und wird in der Profilkarte gemeldet; dann wird nichts geschrieben. |
+| `ManagedProfiles` | Array von Dicts: `Name`, `Endpoint`, optional `OpusModel`, `SonnetModel`, `HaikuModel`, `ModelAlias`, `Environment` (Dict), `ID`, `Type` (`apiKey` Standard oder `oidc`), `OIDCIssuer`, `OIDCClientID`, `OIDCScope`, `OIDCTokenType`, `Office`, `ClaudeDesktop` (Dicts, siehe unten) | Profile werden automatisch angelegt und sind nicht editier- oder löschbar; Entwickler tragen nur den Key ein (oder melden sich für SSO an) und können *Claude in Office* und *Claude Desktop (SSO)* für das Profil selbst einschalten, wo die IT beides nicht setzt (siehe unten). Ohne `ID` wird die Profil-ID aus `Name` abgeleitet, eine Umbenennung erzeugt also ein neues Profil. Bei SSO (`oidc`) sind `OIDCIssuer` und `OIDCClientID` erforderlich; `OIDCScope` Standard `openid profile offline_access`; `OIDCTokenType` ist `access` (Standard) oder `id`, andere Werte verwerfen das Profil. |
+| `ClaudeDesktop` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL` (Standard: `Endpoint` des Profils), `Scopes`, `BearerTokenType` (`id_token` Standard oder `access_token`), `CredentialKind` (`external-idp` Standard oder `interactive`), `Config` (Dict weiterer Claude-Desktop-Schlüssel), `AutoApply` (Bool, Standard `false`) | Claude Desktop meldet sich selbst mit dem OIDC-Client des Gateways an, wenn dieses Profil dafür gewählt ist (siehe [Claude-Tools](#claude-tools)). `external-idp` braucht Claude Desktop ab 2.7032.0; solange ältere Versionen im Einsatz sind, `interactive` setzen. Ein Block mit unbrauchbaren Werten (auch ein unbekanntes `CredentialKind`) bleibt erhalten; KeyZapper schreibt dann nichts für Claude Desktop. Die Schlüssel entsprechen der Claude-Desktop-Konfiguration: `GatewayURL` → `inferenceGatewayBaseUrl`, `OIDCIssuer`/`OIDCClientID`/`Scopes`/`BearerTokenType` → `issuer`, `clientId`, `scopes` und `bearerTokenType` des OIDC-Blocks, `CredentialKind` → `inferenceCredentialKind`; `inferenceProvider: gateway` und `appendOfflineAccess: true` werden immer geschrieben, alles Weitere (Telemetrie, Banner, erlaubte Hosts, …) gehört in `Config`. Ohne das Dict können Entwickler *Claude Desktop (SSO)* im Profil selbst ausfüllen; das Dict der IT ersetzt ihren Eintrag. |
+| `Office` (innerhalb eines `ManagedProfiles`-Eintrags) | Dict: `Enabled` (Bool, Standard `true`), `AddinID`, `GatewayURL`, `EntraClientID`, `EntraScope`, `DisabledFeatures` (Array oder kommagetrennter String) | Richtet [Claude in Microsoft 365](#claude-in-microsoft-365-über-das-profil) aus diesem Profil ein. Werte werden getrimmt. Ein Block mit unbrauchbaren Werten bleibt erhalten und wird in der Profilkarte gemeldet; dann wird nichts geschrieben. Ohne das Dict können Entwickler *Claude in Office* im Profil selbst einschalten; das Dict der IT ersetzt ihren Eintrag. |
 | `AllowedGatewayHosts` | Array von Strings (`host` oder `*.domain`) | Profile nur für diese Hosts. Der Helper gibt Keys für andere Hosts nicht heraus (Exit 78). Gilt nur für den Gateway-Host; der IdP-Host muss nicht gelistet sein. Leer bedeutet keine Einschränkung. |
 | `DefaultEndpoint`, `DefaultModelAlias` | String | Vorbelegung beim Anlegen eigener Profile |
 | `MinimumClaudeCodeVersion` | String | Schwelle für die Warnung vor veralteten Claude-CLIs (Standard 2.1.288) |
@@ -276,6 +276,8 @@ Verwaltete Einstellungen haben Vorrang vor Projekteinstellungen; KeyZapper brich
 | `ManagedMcpServersURL` | String (https-URL) | Adresse der zentralen MCP-Liste (siehe [Zentrale MCP-Liste](#zentrale-mcp-liste)). |
 | `ClaudeToolsEnabled` | Bool (Standard `true`) | Zeigt die Seite *Claude-Tools* zum Installieren von Claude Code, den IDE-Plugins und Claude Desktop. |
 | `ClaudeDesktopAutoInstall` | Bool (Standard `false`) | Installiert ein fehlendes Claude Desktop im Hintergrund aus den offiziellen Quellen von Anthropic, auch wenn die Seite *Claude-Tools* ausgeblendet ist (siehe [Claude-Tools](#claude-tools)). |
+| `ProxyURL` | String (`http://host:port`, optional `user:passwort@`) | Proxy für den eigenen Internetverkehr von KeyZapper: Update-Prüfung und Installer-Downloads von `github.com`, die Claude-Installer von `claude.ai`. Ohne den Schlüssel nutzt KeyZapper die Proxy-Umgebungsvariablen (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY` wird beachtet), sonst den System-Proxy (Netzwerkeinstellungen von macOS, Internetoptionen von Windows; eine PAC-Datei wird nicht ausgewertet). Aufrufe an Gateway und Identity Provider gehen nicht darüber. |
+| `IgnoreDownloadCertificateErrors` | Bool (Standard `false`) | Update-Prüfung und Downloads akzeptieren Zertifikate, denen das System nicht vertraut, für einen Proxy mit TLS-Inspektion, dessen Stammzertifikat nicht auf dem Gerät installiert ist (Fehler „The certificate was not trusted“). Betrifft nur den eigenen Internetverkehr von KeyZapper; die Installer bleiben durch SHA-256-Prüfsumme und minisign-Signatur (KeyZapper) bzw. die Code-Signatur von Anthropic (Claude Desktop) geschützt. Besser das Stammzertifikat des Proxys auf dem Gerät installieren. |
 
 Lokal testen (Benutzerebene; per Intune verwaltete Werte haben Vorrang):
 
@@ -395,6 +397,12 @@ die Modelle des Gateways (`/v1/models`). Es wird weder Key noch Token geschriebe
 `inferenceGatewayOidc`), die neuere Versionen als dieselbe Anmeldung lesen. Die IT setzt das mit einem `ClaudeDesktop`-Dict in
 `ManagedProfiles` (`CredentialKind`: `external-idp` oder `interactive`).
 
+**Auf einem verwalteten Profil ausprobieren:** Ein Profil aus Intune kann *Claude in Office* und *Claude Desktop (SSO)* trotzdem
+vom Entwickler bekommen, solange der Eintrag der IT kein `Office`- bzw. `ClaudeDesktop`-Dict hat: *Bearbeiten* öffnet das Profil
+mit nur diesen beiden Abschnitten freigeschaltet, und die Einstellungen überstehen den nächsten Abgleich mit Intune und einen
+Neustart. Setzt die IT das Dict später, ersetzt es die Einstellungen des Entwicklers und sperrt den Abschnitt; ein wieder
+entferntes Dict bleibt als eigene Einstellung des Entwicklers stehen, bis er sie ausschaltet.
+
 ## KeyZapper deaktivieren
 
 Der Schalter unten in der Seitenleiste deaktiviert KeyZapper: Die App entfernt ihre Einträge aus allen Projekten und aus
@@ -426,6 +434,11 @@ Dafür sind Administratorrechte nötig. Pakete werden nur von `github.com` gelad
 App und unter *KeyZapper › Über KeyZapper*.
 
 Unter Intune schaltet `UpdateCheckEnabled = false` die Prüfung ab. Updates kommen dann über ein neues Paket in Intune.
+
+Hinter einem Firmen-Proxy laufen Prüfung und Download über den Proxy aus `ProxyURL` (Intune), sonst über die Proxy-Umgebungsvariablen,
+sonst über den System-Proxy. Eine fehlgeschlagene Prüfung nennt den Proxy, über den sie ging. Inspiziert der Proxy TLS mit einem
+Zertifikat, dem das Gerät nicht vertraut, dessen Stammzertifikat auf dem Gerät installieren oder `IgnoreDownloadCertificateErrors`
+für Prüfung und Downloads setzen.
 
 ## Bekannte Einschränkungen
 

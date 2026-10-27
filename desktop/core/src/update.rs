@@ -76,16 +76,28 @@ pub fn latest_release(include_prereleases: bool) -> Result<ReleaseInfo, UpdateEr
 }
 
 fn get_json(url: &str) -> Result<String, UpdateError> {
-    let mut response = gateway::agent(Duration::from_secs(15))
+    let mut response = gateway::internet_agent(Duration::from_secs(15))
         .get(url)
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "KeyZapper")
         .call()
-        .map_err(|e| UpdateError::Network(e.to_string()))?;
+        .map_err(|e| UpdateError::Network(network_error(&e)))?;
     if response.status().as_u16() != 200 {
         return Err(UpdateError::Unavailable(response.status().as_u16()));
     }
     response.body_mut().read_to_string().map_err(|e| UpdateError::Network(e.to_string()))
+}
+
+/// The connection error, naming the proxy it went through so IT can tell a proxy problem from a blocked host.
+fn network_error(error: &ureq::Error) -> String {
+    let text = match crate::proxy::describe() {
+        Some(proxy) => l!("%@ (über Proxy %@)", error, proxy),
+        None => error.to_string(),
+    };
+    if crate::proxy::is_certificate_error(&text) && !crate::proxy::ignores_certificate_errors() {
+        return l!("%@ – Zertifikat eines Proxys mit TLS-Inspektion? Dessen Stammzertifikat im System hinterlegen oder per Intune „IgnoreDownloadCertificateErrors“ setzen.", text);
+    }
+    text
 }
 
 pub fn parse(body: &str) -> Option<ReleaseInfo> {
@@ -203,11 +215,11 @@ pub fn download_package(release: &ReleaseInfo) -> Result<PathBuf, UpdateError> {
 }
 
 fn download(url: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
-    let mut response = gateway::agent(Duration::from_secs(300))
+    let mut response = gateway::internet_agent(Duration::from_secs(300))
         .get(url)
         .header("User-Agent", "KeyZapper")
         .call()
-        .map_err(|e| UpdateError::Network(e.to_string()))?;
+        .map_err(|e| UpdateError::Network(network_error(&e)))?;
     if response.status().as_u16() != 200 {
         return Err(UpdateError::Unavailable(response.status().as_u16()));
     }

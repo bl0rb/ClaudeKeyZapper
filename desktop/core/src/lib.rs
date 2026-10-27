@@ -25,6 +25,7 @@ pub mod metadata;
 pub mod models;
 pub mod oidc;
 pub mod paths;
+pub mod proxy;
 pub mod settings;
 pub mod subscription;
 pub mod time;

@@ -17,6 +17,14 @@ pub struct Release {
 fn notes() -> Vec<(&'static str, Vec<String>)> {
     vec![
         (
+            "1.5.4",
+            vec![
+                l!("Claude in Office und Claude Desktop (SSO) lassen sich jetzt auch bei Profilen aus Intune im Profil einschalten, solange die IT sie dort nicht selbst setzt."),
+                l!("Update-Prüfung und Downloads laufen jetzt über den Proxy der Firma: aus „ProxyURL“ per Intune, den Proxy-Umgebungsvariablen oder den Systemeinstellungen."),
+                l!("Hinter einem Proxy mit TLS-Inspektion: „IgnoreDownloadCertificateErrors“ per Intune lässt Update-Prüfung und Downloads auch mit nicht vertrauenswürdigem Zertifikat zu; die Pakete bleiben durch ihre Signatur geschützt."),
+            ],
+        ),
+        (
             "1.5.3",
             vec![
                 l!("KeyZapper braucht im Tray praktisch keine CPU mehr: Versteckte Fenster bekommen keine Ereignisse mehr und holen ihren Stand erst beim Einblenden."),
