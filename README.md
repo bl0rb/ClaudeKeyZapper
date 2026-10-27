@@ -247,12 +247,12 @@ then delete `/Applications/KeyZapper.app`. On Windows, uninstall the MSI via Int
 ### Configuration
 
 **macOS:** *Devices › Configuration › Create › macOS › Templates › Preference file*, Preference domain name `io.github.bl0rb.keyzapper`.
-Template for the Property list file: [docs/intune/io.github.bl0rb.keyzapper.plist](docs/intune/io.github.bl0rb.keyzapper.plist). It contains only
+Template with every key: [docs/intune/io.github.bl0rb.keyzapper.plist](docs/intune/io.github.bl0rb.keyzapper.plist). It contains only
 key-value pairs without the `<plist>`/`<dict>` wrapper, as Intune requires.
 
 **Windows:** The same keys are read as registry values under `HKLM\SOFTWARE\Policies\KeyZapper` (machine policy wins) or `HKCU\SOFTWARE\Policies\KeyZapper`:
 strings as `REG_SZ`, lists as `REG_MULTI_SZ`, switches as `REG_DWORD` 0/1, `ManagedProfiles` as a JSON array in a `REG_SZ`.
-Template: [docs/intune/keyzapper-windows.reg](docs/intune/keyzapper-windows.reg) (deploy e.g. via PowerShell script or Settings catalog).
+Template with every key: [docs/intune/keyzapper-windows.reg](docs/intune/keyzapper-windows.reg) (deploy e.g. via PowerShell script or Settings catalog).
 
 **Important:** For users receiving SSO profiles via managed settings, do not set `apiKeyHelper`, `env.ANTHROPIC_BASE_URL`,
 `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in `managed-settings.json` (or `managed-settings.d/*.json`). Managed settings
@@ -260,9 +260,9 @@ outrank project settings; KeyZapper aborts binding on conflict.
 
 | Key | Type | Effect |
 |---|---|---|
-| `ManagedProfiles` | Array of dicts: `Name`, `Endpoint`, optional `OpusModel`, `SonnetModel`, `HaikuModel`, `ModelAlias`, `Environment` (dict), `ID`, `Type` (`apiKey` default or `oidc`), `OIDCIssuer`, `OIDCClientID`, `OIDCScope`, `OIDCTokenType`, `Office`, `ClaudeDesktop` (dicts, see below) | Profiles are created automatically and cannot be edited or deleted; developers only enter the key (or sign in for SSO). Without `ID` the profile ID is derived from `Name`, so renaming creates a new profile. For SSO (`oidc` type), `OIDCIssuer` and `OIDCClientID` are required; `OIDCScope` defaults to `openid profile offline_access`; `OIDCTokenType` is `access` (default) or `id`, other values discard the profile. |
-| `ClaudeDesktop` (inside a `ManagedProfiles` entry) | Dict: `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL` (default: the profile's `Endpoint`), `Scopes`, `BearerTokenType` (`id_token` default or `access_token`), `CredentialKind` (`external-idp` default or `interactive`), `Config` (dict of further Claude Desktop keys), `AutoApply` (Bool, default `false`) | Claude Desktop signs in itself with the gateway's OIDC client when this profile is chosen for it (see [Claude tools](#claude-tools)). `external-idp` needs Claude Desktop 2.7032.0 or newer; set `interactive` while older versions are in use. A block with unusable values (also an unknown `CredentialKind`) is kept; KeyZapper then writes nothing for Claude Desktop. |
-| `Office` (inside a `ManagedProfiles` entry) | Dict: `Enabled` (Bool, default `true`), `AddinID`, `GatewayURL`, `EntraClientID`, `EntraScope`, `DisabledFeatures` (array or comma-separated string) | Sets up [Claude in Microsoft 365](#claude-in-microsoft-365-through-the-profile) from this profile. Values are trimmed. A block with unusable values is kept and reported on the profile card; nothing is written then. |
+| `ManagedProfiles` | Array of dicts: `Name`, `Endpoint`, optional `OpusModel`, `SonnetModel`, `HaikuModel`, `ModelAlias`, `Environment` (dict), `ID`, `Type` (`apiKey` default or `oidc`), `OIDCIssuer`, `OIDCClientID`, `OIDCScope`, `OIDCTokenType`, `Office`, `ClaudeDesktop` (dicts, see below) | Profiles are created automatically and cannot be edited or deleted; developers only enter the key (or sign in for SSO) and may switch on *Claude in Office* and *Claude Desktop (SSO)* for the profile where IT sets neither (see below). Without `ID` the profile ID is derived from `Name`, so renaming creates a new profile. For SSO (`oidc` type), `OIDCIssuer` and `OIDCClientID` are required; `OIDCScope` defaults to `openid profile offline_access`; `OIDCTokenType` is `access` (default) or `id`, other values discard the profile. |
+| `ClaudeDesktop` (inside a `ManagedProfiles` entry) | Dict: `OIDCIssuer`, `OIDCClientID`, optional `GatewayURL` (default: the profile's `Endpoint`), `Scopes`, `BearerTokenType` (`id_token` default or `access_token`), `CredentialKind` (`external-idp` default or `interactive`), `Config` (dict of further Claude Desktop keys), `AutoApply` (Bool, default `false`) | Claude Desktop signs in itself with the gateway's OIDC client when this profile is chosen for it (see [Claude tools](#claude-tools)). The keys map to Claude Desktop's configuration: `GatewayURL` → `inferenceGatewayBaseUrl`, `OIDCIssuer`/`OIDCClientID`/`Scopes`/`BearerTokenType` → the `issuer`, `clientId`, `scopes` and `bearerTokenType` of the OIDC block, `CredentialKind` → `inferenceCredentialKind`; `inferenceProvider: gateway` and `appendOfflineAccess: true` are always written, everything else (telemetry, banner, allowed hosts, …) goes into `Config`. Without the dict, developers may fill in *Claude Desktop (SSO)* in the profile themselves; the dict from IT replaces their entry. `external-idp` needs Claude Desktop 2.7032.0 or newer; set `interactive` while older versions are in use. A block with unusable values (also an unknown `CredentialKind`) is kept; KeyZapper then writes nothing for Claude Desktop. |
+| `Office` (inside a `ManagedProfiles` entry) | Dict: `Enabled` (Bool, default `true`), `AddinID`, `GatewayURL`, `EntraClientID`, `EntraScope`, `DisabledFeatures` (array or comma-separated string) | Sets up [Claude in Microsoft 365](#claude-in-microsoft-365-through-the-profile) from this profile. Without the dict, developers may switch on *Claude in Office* in the profile themselves; the dict from IT replaces their entry. Values are trimmed. A block with unusable values is kept and reported on the profile card; nothing is written then. |
 | `AllowedGatewayHosts` | Array of strings (`host` or `*.domain`) | Profiles only for these hosts. The helper does not release keys for other hosts (exit 78). Applies to the gateway host only; the IdP host need not be listed. Empty means no restriction. |
 | `DefaultEndpoint`, `DefaultModelAlias` | String | Prefill when creating your own profiles |
 | `MinimumClaudeCodeVersion` | String | Threshold for the warning about outdated Claude CLIs (default 2.1.288) |
@@ -388,6 +388,11 @@ and lists the gateway's models (`/v1/models`). No key or token is written. For o
 2.7032.0* in the profile's *Claude Desktop version* field: KeyZapper then writes the older spelling (`interactive`,
 `inferenceGatewayOidc`), which newer versions read as the same sign-in. IT sets this with a `ClaudeDesktop` dict in
 `ManagedProfiles` (`CredentialKind`: `external-idp` or `interactive`).
+
+**Trying it on a managed profile:** A profile from Intune can still get *Claude in Office* and *Claude Desktop (SSO)* from the
+developer, as long as IT's entry has no `Office` or `ClaudeDesktop` dict: *Edit* opens the profile with only those two sections
+enabled, and the settings survive the next sync with Intune and a restart. Once IT adds the dict, it replaces the developer's
+settings and locks the section; a dict IT removes again stays as the developer's own until they switch it off.
 
 ## Deactivating KeyZapper
 

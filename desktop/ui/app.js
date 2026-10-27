@@ -566,7 +566,7 @@ function subscriptionUsage(compact = false) {
 function profileMenu(profile, bindings, testConnection) {
   const locked = profile.managed;
   return [
-    [t('Bearbeiten'), () => profileEditor(profile), { iconName: 'pencil', disabled: locked }],
+    [t('Bearbeiten'), () => profileEditor(profile), { iconName: 'pencil' }],
     profile.subscription ? null : profile.sso
       ? [profile.ssoState === 'loggedIn' ? t('Neu anmelden') : t('Anmelden'), () => call('sso_login', { profileId: profile.id }), { iconName: 'key', disabled: profile.ssoLoggingIn }]
       : [profile.hasKey ? t('Key ändern') : t('Key hinterlegen'), () => replaceKeyDialog(profile), { iconName: 'key' }],
@@ -986,11 +986,14 @@ function profileEditor(existing) {
     const sso = s.authType === 'oidc';
     const subscription = s.authType === 'subscription';
     const issuerOk = !sso || /^https:\/\//i.test(s.oidcIssuer.trim()) || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(s.oidcIssuer.trim());
-    const officeShown = !subscription && !(managed && !existing?.office);
-    const officeOn = officeShown && !managed && s.office.enabled;
+    // Of a managed profile, Claude in Office and Claude Desktop (SSO) stay the user's own unless IT sets them.
+    const officeLocked = managed && !!existing?.officeManaged;
+    const officeShown = !subscription;
+    const officeOn = officeShown && !officeLocked && s.office.enabled;
     const officeIssues = officeOn ? officeProblems(s.office) : [];
-    const desktopShown = !subscription && !(managed && !existing?.claudeDesktop);
-    const desktopIssues = desktopShown && !managed && s.claudeDesktop.enabled ? desktopSsoProblems(s.claudeDesktop) : [];
+    const desktopLocked = managed && !!existing?.claudeDesktopManaged;
+    const desktopShown = !subscription;
+    const desktopIssues = desktopShown && !desktopLocked && s.claudeDesktop.enabled ? desktopSsoProblems(s.claudeDesktop) : [];
     const valid = s.name.trim() && (subscription || (host && allowed))
       && (sso ? issuerOk && s.oidcClientId.trim() : subscription || existing || s.key) && !invalid.length && !officeIssues.length && !desktopIssues.length;
     const update = (key) => (value) => { s[key] = value; dlg.render(); };
@@ -1022,7 +1025,7 @@ function profileEditor(existing) {
             field(t('LiteLLM-Endpunkt'), input({ value: s.endpoint, placeholder: 'https://litellm.firma.intern' }, update('endpoint')), 'p-endpoint'),
             s.endpoint && !host && h('div', { class: 'field-note error-text' }, t('Bitte eine vollständige https-URL angeben (http nur für localhost).')),
             host && !allowed && h('div', { class: 'field-note error-text' }, t('Host nicht freigegeben. Erlaubt: %@', view.allowedHosts.join(', ')))]),
-        managed && h('div', { class: 'section-note' }, sso ? t('Von der IT vorgegeben – nur die Anmeldung ist möglich.') : t('Von der IT vorgegeben – nur der Key kann geändert werden.')),
+        managed && h('div', { class: 'section-note' }, sso ? t('Von der IT vorgegeben – möglich sind nur die Anmeldung sowie Claude in Office und Claude Desktop (SSO), soweit die IT sie nicht setzt.') : t('Von der IT vorgegeben – änderbar sind nur der Key sowie Claude in Office und Claude Desktop (SSO), soweit die IT sie nicht setzt.')),
         h('fieldset', { disabled: !!existing },
           field(t('Anmeldung'), h('select', { onchange: (e) => { s.authType = e.target.value; dlg.render(); } },
             h('option', { value: 'apiKey', selected: s.authType === 'apiKey' }, t('Key')),
@@ -1064,7 +1067,8 @@ function profileEditor(existing) {
             oninput: (e) => { s.environmentText = e.target.value; dlg.render(); } }),
           invalid.map((line) => h('div', { class: 'error-text' }, t('Ungültig oder nicht erlaubt: %@', line))),
           h('div', { class: 'section-note' }, t('Eine pro Zeile im Format NAME=Wert, z. B. CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1 für Bedrock über LiteLLM. Key, Endpunkt und Modelle werden oben gesetzt.'))),
-        officeShown && h('fieldset', { disabled: managed }, h('legend', null, t('Claude in Office')),
+        officeShown && h('fieldset', { disabled: officeLocked }, h('legend', null, t('Claude in Office')),
+          officeLocked && h('div', { class: 'section-note' }, t('Von der IT vorgegeben')),
           h('label', { class: 'switch' },
             h('input', { type: 'checkbox', role: 'switch', checked: s.office.enabled, onchange: (e) => { s.office.enabled = e.target.checked; dlg.render(); } }),
             t('Claude in Excel, Word und PowerPoint einrichten')),
@@ -1076,7 +1080,8 @@ function profileEditor(existing) {
             field(t('Abgeschaltete Funktionen'), input({ value: s.office.disabledFeatures, placeholder: 'web_search, thumbs' }, (v) => { s.office.disabledFeatures = v; dlg.render(); }), 'p-office-features'),
             officeIssues.filter(([key]) => key === 'disabledFeatures' || s.office[key].trim()).map(([, message]) => h('div', { class: 'error-text' }, message))],
           h('div', { class: 'section-note' }, t('Richtet Claude für Microsoft 365 als Add-in ein (Sideload) und meldet es per Entra-SSO am Gateway an; es wird kein Geheimnis gespeichert. Die Add-in-ID ist eine eigene GUID in Kleinbuchstaben, nicht die des Marketplace-Add-ins. Nach dem Einrichten Office einmal neu starten.'))),
-        desktopShown && h('fieldset', { disabled: managed }, h('legend', null, t('Claude Desktop (SSO)')),
+        desktopShown && h('fieldset', { disabled: desktopLocked }, h('legend', null, t('Claude Desktop (SSO)')),
+          desktopLocked && h('div', { class: 'section-note' }, t('Von der IT vorgegeben')),
           h('label', { class: 'switch' },
             h('input', { type: 'checkbox', role: 'switch', checked: s.claudeDesktop.enabled, onchange: (e) => { s.claudeDesktop.enabled = e.target.checked; dlg.render(); } }),
             t('Claude Desktop meldet sich selbst per SSO am Gateway an')),

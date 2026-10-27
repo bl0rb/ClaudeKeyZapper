@@ -1,10 +1,14 @@
 <key>ManagedProfiles</key>
 <array>
   <dict>
+    <key>ID</key>
+    <string>7f3c2a10-5b4e-4d8a-9c1f-0e2b3a4c5d6e</string>
     <key>Name</key>
     <string>Projekt Alpha</string>
     <key>Endpoint</key>
     <string>https://litellm.firma.example</string>
+    <key>ModelAlias</key>
+    <string>claude-sonnet</string>
     <key>OpusModel</key>
     <string>eu.anthropic.claude-opus-5-team</string>
     <key>SonnetModel</key>
@@ -25,11 +29,13 @@
     <key>Endpoint</key>
     <string>https://litellm.firma.example</string>
     <key>OIDCIssuer</key>
-    <string>https://login.firma.example/t/v2.0</string>
+    <string>https://login.microsoftonline.com/00000000-0000-4000-8000-000000000000/v2.0</string>
     <key>OIDCClientID</key>
-    <string>c1abe1234567890abcdef</string>
+    <string>c1abe123-4567-4890-abcd-ef0123456789</string>
     <key>OIDCScope</key>
-    <string>api://c1abe1234567890abcdef/.default offline_access</string>
+    <string>api://c1abe123-4567-4890-abcd-ef0123456789/.default offline_access</string>
+    <key>OIDCTokenType</key>
+    <string>access</string>
     <key>Environment</key>
     <dict>
       <key>CLAUDE_CODE_API_KEY_HELPER_TTL_MS</key>
@@ -43,6 +49,8 @@
       <string>https://login.microsoftonline.com/00000000-0000-4000-8000-000000000000/v2.0</string>
       <key>OIDCClientID</key>
       <string>22222222-3333-4444-8555-666666666666</string>
+      <key>Scopes</key>
+      <string>openid profile email offline_access</string>
       <key>BearerTokenType</key>
       <string>id_token</string>
       <key>CredentialKind</key>
@@ -53,6 +61,41 @@
       <dict>
         <key>disableDeploymentModeChooser</key>
         <true/>
+        <key>chatTabEnabled</key>
+        <true/>
+        <key>desktopHome</key>
+        <string>standard</string>
+        <key>disableFeatureDiscovery</key>
+        <true/>
+        <key>disableEssentialTelemetry</key>
+        <true/>
+        <key>disableNonessentialTelemetry</key>
+        <true/>
+        <key>disabledBuiltinTools</key>
+        <array>
+          <string>WebSearch</string>
+        </array>
+        <key>coworkEgressAllowedHosts</key>
+        <array>
+          <string>*.firma.example</string>
+        </array>
+        <key>deploymentDisplayName</key>
+        <string>Firma</string>
+        <key>deploymentDisplaySubtitle</key>
+        <string>0.1.0 (PoC)</string>
+        <key>banner</key>
+        <dict>
+          <key>enabled</key>
+          <true/>
+          <key>text</key>
+          <string>Firma Claude Desktop PoC</string>
+          <key>backgroundColor</key>
+          <string>#005E52</string>
+          <key>textColor</key>
+          <string>#FFFFFF</string>
+          <key>linkUrl</key>
+          <string>https://wiki.firma.example/claude</string>
+        </dict>
       </dict>
     </dict>
     <key>Office</key>
@@ -74,8 +117,6 @@
     </dict>
   </dict>
 </array>
-<key>ClaudeDesktopAutoInstall</key>
-<false/>
 <key>AllowedGatewayHosts</key>
 <array>
   <string>litellm.firma.example</string>
@@ -89,6 +130,8 @@
 <string>2.1.288</string>
 <key>OneDriveBackup</key>
 <true/>
+<key>BackupDirectory</key>
+<string>~/Library/CloudStorage/OneDrive-Firma/KeyZapper</string>
 <key>UpdateCheckEnabled</key>
 <false/>
 <key>AllowKeyExport</key>
@@ -97,3 +140,5 @@
 <string>https://sso.firma.example/keyzapper/mcp-servers.json</string>
 <key>ClaudeToolsEnabled</key>
 <true/>
+<key>ClaudeDesktopAutoInstall</key>
+<false/>
