@@ -144,3 +144,5 @@
 <false/>
 <key>ProxyURL</key>
 <string>http://proxy.firma.example:3128</string>
+<key>IgnoreDownloadCertificateErrors</key>
+<false/>

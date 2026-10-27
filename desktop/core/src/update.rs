@@ -90,10 +90,14 @@ fn get_json(url: &str) -> Result<String, UpdateError> {
 
 /// The connection error, naming the proxy it went through so IT can tell a proxy problem from a blocked host.
 fn network_error(error: &ureq::Error) -> String {
-    match crate::proxy::describe() {
+    let text = match crate::proxy::describe() {
         Some(proxy) => l!("%@ (über Proxy %@)", error, proxy),
         None => error.to_string(),
+    };
+    if crate::proxy::is_certificate_error(&text) && !crate::proxy::ignores_certificate_errors() {
+        return l!("%@ – Zertifikat eines Proxys mit TLS-Inspektion? Dessen Stammzertifikat im System hinterlegen oder per Intune „IgnoreDownloadCertificateErrors“ setzen.", text);
     }
+    text
 }
 
 pub fn parse(body: &str) -> Option<ReleaseInfo> {

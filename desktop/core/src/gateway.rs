@@ -72,7 +72,12 @@ pub fn internet_agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
-        .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .provider(ureq::tls::TlsProvider::NativeTls)
+                .disable_verification(crate::proxy::ignores_certificate_errors())
+                .build(),
+        )
         .proxy(crate::proxy::internet())
         .build()
         .into()

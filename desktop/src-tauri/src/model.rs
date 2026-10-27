@@ -230,7 +230,7 @@ impl Model {
     /// Loads from `data_dir` with the managed settings `config` as given. Tests pass an empty config and a temporary folder,
     /// so they neither read the real managed preferences nor write the real data or backup folder.
     fn load_from(version: Option<String>, config: ManagedConfig, data_dir: PathBuf) -> Self {
-        keyzapper_core::proxy::configure(config.proxy_url.clone());
+        keyzapper_core::proxy::configure(config.proxy_url.clone(), config.ignore_download_certificate_errors);
         let backup_dir = BackupStore::directory(&config);
         let metadata = MetadataStore::new(data_dir.join("state.json"), true);
         let mut model = Model {

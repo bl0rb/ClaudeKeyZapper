@@ -4,15 +4,31 @@
 //! options). An app started from the Finder or the Start menu has no proxy variables, so the system proxy is what a managed
 //! Mac or PC usually has. Calls to the gateway and the identity provider stay direct: they are inside the company network.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 
 static MANAGED: RwLock<Option<String>> = RwLock::new(None);
+static IGNORE_CERTIFICATE_ERRORS: AtomicBool = AtomicBool::new(false);
 
 /// The proxy IT sets (`ProxyURL`, e.g. `http://proxy.firma.example:3128`); None or empty = decide from the environment.
-pub fn configure(url: Option<String>) {
+/// `ignore_certificate_errors` (`IgnoreDownloadCertificateErrors`): accept the certificates a TLS-inspecting proxy presents
+/// for the internet traffic even when the system does not trust them. The packages stay protected by their signature.
+pub fn configure(url: Option<String>, ignore_certificate_errors: bool) {
     if let Ok(mut managed) = MANAGED.write() {
         *managed = url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
     }
+    IGNORE_CERTIFICATE_ERRORS.store(ignore_certificate_errors, Ordering::Relaxed);
+}
+
+/// Whether the internet traffic accepts certificates the system does not trust.
+pub fn ignores_certificate_errors() -> bool {
+    IGNORE_CERTIFICATE_ERRORS.load(Ordering::Relaxed)
+}
+
+/// The error names a certificate the system does not trust, as a TLS-inspecting proxy causes it.
+pub fn is_certificate_error(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    ["certificate", "zertifikat", "self signed", "self-signed", "unknown issuer", "untrusted"].iter().any(|hint| lower.contains(hint))
 }
 
 /// The proxy for internet traffic, None = direct. An unusable `ProxyURL` counts as none, so the request still goes out.
@@ -116,12 +132,20 @@ mod tests {
 
     #[test]
     fn the_proxy_from_it_wins_and_an_unusable_one_means_direct() {
-        configure(Some(" http://proxy.firma.example:3128 ".into()));
+        configure(Some(" http://proxy.firma.example:3128 ".into()), true);
         let proxy = internet().expect("configured proxy");
         assert_eq!((proxy.host(), proxy.port()), ("proxy.firma.example", 3128));
         assert_eq!(describe().as_deref(), Some("proxy.firma.example:3128"));
-        configure(Some("::not a proxy::".into()));
-        assert!(internet().is_none());
-        configure(None);
+        assert!(ignores_certificate_errors());
+        configure(Some("::not a proxy::".into()), false);
+        assert!(internet().is_none() && !ignores_certificate_errors());
+        configure(None, false);
+    }
+
+    #[test]
+    fn a_certificate_error_is_recognised_in_either_language() {
+        assert!(is_certificate_error("tls: The certificate was not trusted."));
+        assert!(is_certificate_error("Das Zertifikat ist nicht vertrauenswürdig"));
+        assert!(!is_certificate_error("connection refused"));
     }
 }

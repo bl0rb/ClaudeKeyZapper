@@ -274,6 +274,7 @@ outrank project settings; KeyZapper aborts binding on conflict.
 | `ClaudeToolsEnabled` | Bool (default `true`) | Shows the *Claude Tools* page for installing Claude Code, its IDE plugins and Claude Desktop. |
 | `ClaudeDesktopAutoInstall` | Bool (default `false`) | Installs a missing Claude Desktop in the background from Anthropic's official sources, also with the *Claude Tools* page hidden (see [Claude tools](#claude-tools)). |
 | `ProxyURL` | String (`http://host:port`, optionally `user:password@`) | Proxy for KeyZapper's own internet traffic: the update check and installer downloads from `github.com`, the Claude installers from `claude.ai`. Without it, KeyZapper uses the proxy environment variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, honouring `NO_PROXY`) and otherwise the system proxy (macOS network settings, Windows internet options; a PAC file is not evaluated). Gateway and identity-provider calls are not routed through it. |
+| `IgnoreDownloadCertificateErrors` | Bool (default `false`) | The update check and the downloads accept certificates the system does not trust, for a proxy with TLS inspection whose root certificate is not installed on the device (error "The certificate was not trusted"). Only KeyZapper's own internet traffic is affected; the installers stay protected by the SHA-256 checksum and minisign signature (KeyZapper) and by Anthropic's code signature (Claude Desktop). Prefer installing the proxy's root certificate on the device. |
 
 Test locally (user level; values managed via Intune take precedence):
 
@@ -427,7 +428,8 @@ app and under *KeyZapper › About KeyZapper*.
 With Intune, `UpdateCheckEnabled = false` turns the check off. Updates then arrive as a new package in Intune.
 
 Behind a company proxy the check and the download use the proxy from `ProxyURL` (Intune), else the proxy environment variables, else
-the system proxy. A failed check names the proxy it went through.
+the system proxy. A failed check names the proxy it went through. If the proxy inspects TLS with a certificate the device does not
+trust, install its root certificate on the device, or set `IgnoreDownloadCertificateErrors` for the check and the downloads.
 
 ## Known limitations
 

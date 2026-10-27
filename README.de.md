@@ -277,6 +277,7 @@ Verwaltete Einstellungen haben Vorrang vor Projekteinstellungen; KeyZapper brich
 | `ClaudeToolsEnabled` | Bool (Standard `true`) | Zeigt die Seite *Claude-Tools* zum Installieren von Claude Code, den IDE-Plugins und Claude Desktop. |
 | `ClaudeDesktopAutoInstall` | Bool (Standard `false`) | Installiert ein fehlendes Claude Desktop im Hintergrund aus den offiziellen Quellen von Anthropic, auch wenn die Seite *Claude-Tools* ausgeblendet ist (siehe [Claude-Tools](#claude-tools)). |
 | `ProxyURL` | String (`http://host:port`, optional `user:passwort@`) | Proxy für den eigenen Internetverkehr von KeyZapper: Update-Prüfung und Installer-Downloads von `github.com`, die Claude-Installer von `claude.ai`. Ohne den Schlüssel nutzt KeyZapper die Proxy-Umgebungsvariablen (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY` wird beachtet), sonst den System-Proxy (Netzwerkeinstellungen von macOS, Internetoptionen von Windows; eine PAC-Datei wird nicht ausgewertet). Aufrufe an Gateway und Identity Provider gehen nicht darüber. |
+| `IgnoreDownloadCertificateErrors` | Bool (Standard `false`) | Update-Prüfung und Downloads akzeptieren Zertifikate, denen das System nicht vertraut, für einen Proxy mit TLS-Inspektion, dessen Stammzertifikat nicht auf dem Gerät installiert ist (Fehler „The certificate was not trusted“). Betrifft nur den eigenen Internetverkehr von KeyZapper; die Installer bleiben durch SHA-256-Prüfsumme und minisign-Signatur (KeyZapper) bzw. die Code-Signatur von Anthropic (Claude Desktop) geschützt. Besser das Stammzertifikat des Proxys auf dem Gerät installieren. |
 
 Lokal testen (Benutzerebene; per Intune verwaltete Werte haben Vorrang):
 
@@ -435,7 +436,9 @@ App und unter *KeyZapper › Über KeyZapper*.
 Unter Intune schaltet `UpdateCheckEnabled = false` die Prüfung ab. Updates kommen dann über ein neues Paket in Intune.
 
 Hinter einem Firmen-Proxy laufen Prüfung und Download über den Proxy aus `ProxyURL` (Intune), sonst über die Proxy-Umgebungsvariablen,
-sonst über den System-Proxy. Eine fehlgeschlagene Prüfung nennt den Proxy, über den sie ging.
+sonst über den System-Proxy. Eine fehlgeschlagene Prüfung nennt den Proxy, über den sie ging. Inspiziert der Proxy TLS mit einem
+Zertifikat, dem das Gerät nicht vertraut, dessen Stammzertifikat auf dem Gerät installieren oder `IgnoreDownloadCertificateErrors`
+für Prüfung und Downloads setzen.
 
 ## Bekannte Einschränkungen
 
