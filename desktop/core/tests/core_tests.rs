@@ -835,6 +835,7 @@ fn whats_new_lists_releases_since_the_previous_version() {
     assert_eq!(versions(Some("1.4.3"), "1.5.0-beta.1"), vec!["1.5.0"]);
     assert!(versions(Some("1.5.0-beta.1"), "1.5.0").is_empty());
     assert_eq!(versions(Some("1.5.0"), "1.5.1"), vec!["1.5.1"]);
+    assert_eq!(versions(Some("1.5.1"), "1.5.3"), vec!["1.5.3"]);
     assert!(since(Some("1.3.0"), "1.4.0")[0].items.iter().all(|i| !i.is_empty()));
 }
 
