@@ -210,7 +210,7 @@ fn desktop_version() -> Option<String> {
 /// Downloads into a fresh temporary folder (streamed, the installers are several hundred MB).
 #[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 fn download(url: &str, file_name: &str) -> Result<PathBuf, String> {
-    let mut response = gateway::agent(Duration::from_secs(1800))
+    let mut response = gateway::internet_agent(Duration::from_secs(1800))
         .get(url)
         .header("User-Agent", "KeyZapper")
         .call()

@@ -20,6 +20,7 @@ fn notes() -> Vec<(&'static str, Vec<String>)> {
             "1.5.2",
             vec![
                 l!("Claude in Office und Claude Desktop (SSO) lassen sich jetzt auch bei Profilen aus Intune im Profil einschalten, solange die IT sie dort nicht selbst setzt."),
+                l!("Update-Prüfung und Downloads laufen jetzt über den Proxy der Firma: aus „ProxyURL“ per Intune, den Proxy-Umgebungsvariablen oder den Systemeinstellungen."),
             ],
         ),
         (

@@ -66,6 +66,18 @@ pub fn agent(timeout: Duration) -> ureq::Agent {
         .into()
 }
 
+/// `agent` for KeyZapper's own internet traffic (GitHub, claude.ai): through the proxy IT, the environment or the system
+/// settings name, see `proxy`. Gateway and identity-provider calls keep `agent` and stay direct.
+pub fn internet_agent(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
+        .proxy(crate::proxy::internet())
+        .build()
+        .into()
+}
+
 pub fn join_url(endpoint: &str, path: &str) -> String {
     format!("{}/{}", endpoint.trim_end_matches('/'), path)
 }

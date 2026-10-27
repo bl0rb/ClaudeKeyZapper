@@ -273,6 +273,7 @@ outrank project settings; KeyZapper aborts binding on conflict.
 | `ManagedMcpServersURL` | String (https URL) | Address of the central MCP server list (see [Central MCP server list](#central-mcp-server-list)). |
 | `ClaudeToolsEnabled` | Bool (default `true`) | Shows the *Claude Tools* page for installing Claude Code, its IDE plugins and Claude Desktop. |
 | `ClaudeDesktopAutoInstall` | Bool (default `false`) | Installs a missing Claude Desktop in the background from Anthropic's official sources, also with the *Claude Tools* page hidden (see [Claude tools](#claude-tools)). |
+| `ProxyURL` | String (`http://host:port`, optionally `user:password@`) | Proxy for KeyZapper's own internet traffic: the update check and installer downloads from `github.com`, the Claude installers from `claude.ai`. Without it, KeyZapper uses the proxy environment variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, honouring `NO_PROXY`) and otherwise the system proxy (macOS network settings, Windows internet options; a PAC file is not evaluated). Gateway and identity-provider calls are not routed through it. |
 
 Test locally (user level; values managed via Intune take precedence):
 
@@ -424,6 +425,9 @@ Administrator rights are required. Packages are only downloaded from `github.com
 app and under *KeyZapper › About KeyZapper*.
 
 With Intune, `UpdateCheckEnabled = false` turns the check off. Updates then arrive as a new package in Intune.
+
+Behind a company proxy the check and the download use the proxy from `ProxyURL` (Intune), else the proxy environment variables, else
+the system proxy. A failed check names the proxy it went through.
 
 ## Known limitations
 
