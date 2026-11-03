@@ -504,6 +504,7 @@
  "SSO-Profile haben keinen Key und nehmen nicht am Budget-Killer-Pool teil.": "SSO profiles have no key and do not take part in the Budget-Killer pool.",
  "SSO-Profile unterstützen keinen Pool-Modus.": "SSO profiles do not support pool mode.",
  "SSO-Profile zeigen jetzt ihr verbleibendes Budget, z. B. an LiteLLM – ohne eigenen Key das Budget des angemeldeten Nutzers.": "SSO profiles now show their remaining budget, e.g. on LiteLLM – without a key of their own, the signed-in user's budget.",
+ "SSO-Profile: „Verbindung prüfen“ meldet nicht mehr ab, wenn das Gateway den Zugang ablehnt (401/403) – die Meldung sagt jetzt, dass die Freigabe fehlt.": "SSO profiles: “Check connection” no longer signs you out when the gateway refuses access (401/403) – the message now says the grant is missing.",
  "Schließen": "Close",
  "Schließt du das Fenster, läuft KeyZapper im Infobereich der Taskleiste weiter: Klick aufs Symbol zeigt Abo-Verbrauch und Budgets, Rechtsklick wechselt Profile je Projekt.": "When you close the window, KeyZapper keeps running in the notification area: click the icon for subscription usage and budgets, right-click to switch profiles per project.",
  "Schließt du das Fenster, läuft KeyZapper in der Menüleiste weiter: Klick aufs Symbol zeigt Abo-Verbrauch und Budgets, Rechtsklick wechselt Profile je Projekt.": "When you close the window, KeyZapper keeps running in the menu bar: click the icon for subscription usage and budgets, right-click to switch profiles per project.",
