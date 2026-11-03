@@ -179,6 +179,7 @@
  "Das Gateway hat die Anfrage abgelehnt (HTTP %@): %@": "The gateway rejected the request (HTTP %@): %@",
  "Das Gateway hat eine leere Antwort geliefert.": "The gateway returned an empty response.",
  "Das Gateway hat keine Modelle für diesen Key gemeldet.": "The gateway reported no models for this key.",
+ "Das Gateway lehnt den SSO-Zugang ab (HTTP 401/403). Die Anmeldung bleibt bestehen – Freigabe für Gateway und Modell prüfen oder im Profilmenü „Neu anmelden“ wählen.": "The gateway refuses SSO access (HTTP 401/403). You stay signed in – check the grant for gateway and model, or choose “Sign in again” in the profile menu.",
  "Das Gateway meldet keine Modelle für den Tenant „%@“.": "The gateway reports no models for tenant “%@”.",
  "Das ID-Token enthält kein gültiges Ablaufdatum (exp).": "The ID token has no valid expiry (exp).",
  "Das Kopieren von Keys ist laut Firmenrichtlinie (AllowKeyExport) deaktiviert.": "Copying keys is disabled by company policy (AllowKeyExport).",
