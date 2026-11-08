@@ -2055,7 +2055,7 @@ dependencies = [
  "ureq",
  "url",
  "uuid",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
  "winreg 0.55.0",
 ]
 
