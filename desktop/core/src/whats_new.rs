@@ -17,6 +17,12 @@ pub struct Release {
 fn notes() -> Vec<(&'static str, Vec<String>)> {
     vec![
         (
+            "1.5.7",
+            vec![
+                l!("SSO-Profile: „Verbindung prüfen“ meldet nicht mehr ab, wenn das Gateway den Zugang ablehnt (401/403) – die Meldung sagt jetzt, dass die Freigabe fehlt."),
+            ],
+        ),
+        (
             "1.5.5",
             vec![
                 l!("Projekte in WSL: Ordner unter \\\\wsl.localhost lassen sich zuordnen; Claude Code in WSL holt den Key über den Windows-Helper per WSL-Interop, Git-Root und Status kommen aus der Distribution."),
