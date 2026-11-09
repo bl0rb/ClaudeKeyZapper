@@ -434,7 +434,7 @@ function summaryBar() {
       attention > 0 && h('span', { class: 'orange' }, ` · ${attention === 1 ? t('1 braucht Aufmerksamkeit') : t('%@ brauchen Aufmerksamkeit', attention)}`)),
     h('span', { class: 'spacer' }),
     repairable.length > 0 && button(repairable.length === 1 ? t('Reparieren') : t('Alle reparieren'),
-      () => call('reapply_many', { bindingIds: repairable.map((b) => b.id) }), { iconName: 'rotate', cls: 'primary' }));
+      () => call('reapply_many', { bindingIds: repairable.map((b) => b.id) }), { iconName: 'rotate' }));
 }
 
 // MARK: Profiles
@@ -601,8 +601,8 @@ function credentialRow(profile, testConnection, check) {
     h('span', { class: 'spacer' }),
     ok && button(check.checking ? t('Wird geprüft …') : t('Verbindung prüfen'), testConnection, { iconName: 'activity', disabled: check.checking }),
     !ok && !profile.subscription && (profile.sso
-      ? button(t('Anmelden'), () => call('sso_login', { profileId: profile.id }), { iconName: 'key', cls: 'primary', disabled: profile.ssoLoggingIn })
-      : button(t('Key hinterlegen'), () => replaceKeyDialog(profile), { iconName: 'key', cls: 'primary' })));
+      ? button(t('Anmelden'), () => call('sso_login', { profileId: profile.id }), { iconName: 'key', disabled: profile.ssoLoggingIn })
+      : button(t('Key hinterlegen'), () => replaceKeyDialog(profile), { iconName: 'key' })));
 }
 
 const OFFICE_APP_NAMES = { excel: 'Excel', word: 'Word', powerpoint: 'PowerPoint' };
@@ -639,7 +639,7 @@ function profileCard(profile) {
     h('div', { class: 'card-head' },
       h('span', { class: 'avatar', 'aria-hidden': 'true' }, initials(profile.name)),
       h('div', { class: 'card-title' },
-        h('h2', null, profile.name, profile.sso && h('span', { class: 'badge' }, 'SSO'), profile.subscription && h('span', { class: 'badge' }, t('Claude-Abo')),
+        h('h2', null, profile.name, !profile.sso && !profile.subscription && h('span', { class: 'badge' }, t('Key')), profile.sso && h('span', { class: 'badge' }, 'SSO'), profile.subscription && h('span', { class: 'badge' }, t('Claude-Abo')),
           profile.managed && h('span', { class: 'badge' }, t('Von der IT vorgegeben'))),
         h('div', { class: 'muted small selectable' }, (profile.subscription ? t('Anmeldung von Claude Code') : profile.endpoint)
           + (profile.modelAlias ? t(' · Modell %@', profile.modelAlias) : '')),
@@ -817,7 +817,7 @@ function settingsPage() {
         icon(health.state === 'active' ? 'check' : 'warning'), healthText),
       h('div', { class: 'line' }, h('span', { class: 'spacer' }),
         button(t('Übernehmen'), async () => { if (!selected || await ensureLogin(selected)) call('set_global_profile', { profileId: selected || null }); },
-          { cls: 'primary', disabled: unchanged || (!selected && !view.globalProfileId) || view.disabled })),
+          { disabled: unchanged || (!selected && !view.globalProfileId) || view.disabled })),
       h('div', { class: 'section-note' }, t('Trägt das Profil in ~/.claude/settings.json ein. Claude Code nutzt es in allen Ordnern ohne eigene Zuordnung, statt auf einen Klartext-Key oder die normale Anmeldung zurückzufallen. Zugeordnete Projekte behalten ihr eigenes Profil.'))),
   ];
 }
@@ -1522,7 +1522,7 @@ function toolCard(info, status, ...extra) {
       h('span', { class: 'avatar', style: `--profile: ${info.color}`, 'aria-hidden': 'true' }, icon(info.symbol)),
       h('div', { class: 'card-title' }, h('h2', null, info.title), h('div', { class: 'muted small' }, info.subtitle)),
       status && !installed && status.hostFound && button(installing ? t('Wird installiert …') : t('Installieren'),
-        () => call('install_tool', { tool: info.tool }), { iconName: 'download', cls: 'primary', disabled: !!view.installingTool })),
+        () => call('install_tool', { tool: info.tool }), { iconName: 'download', disabled: !!view.installingTool })),
     h('div', { class: `finding ${installed ? 'green' : 'muted'}` }, icon(installed ? 'check' : 'info'), text,
       installing && h('span', { class: 'spinner', role: 'status', 'aria-label': t('Wird installiert …') })),
     extra);
@@ -1551,7 +1551,7 @@ function claudeDesktopSettings() {
       button(t('Übernehmen'), async () => {
         const signsInItself = view.profiles.find((p) => p.id === selected)?.claudeDesktop;
         if (!selected || signsInItself || await ensureLogin(selected)) call('set_claude_desktop_profile', { profileId: selected || null });
-      }, { cls: 'primary', disabled: (selected === current && (!selected || view.claudeDesktop.applied)) || (!!selected && view.claudeDesktop.managed) })),
+      }, { disabled: (selected === current && (!selected || view.claudeDesktop.applied)) || (!!selected && view.claudeDesktop.managed) })),
     h('div', { class: 'section-note' }, t('KeyZapper legt dafür eine Konfigurationsdatei für den Drittanbieter-Modus von Claude Desktop an: Anfragen gehen an das Gateway des Profils, Key oder SSO-Token holt Claude Desktop über den Helper – wie Claude Code –, oder es meldet sich selbst an, wenn das Profil „Claude Desktop (SSO)“ eingerichtet hat. Danach Claude Desktop beenden, neu öffnen und auf dem Anmeldebildschirm den Start mit dieser Konfiguration wählen.')));
 }
 

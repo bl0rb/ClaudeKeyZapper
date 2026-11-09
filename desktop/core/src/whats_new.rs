@@ -17,6 +17,12 @@ pub struct Release {
 fn notes() -> Vec<(&'static str, Vec<String>)> {
     vec![
         (
+            "1.6.0",
+            vec![
+                l!("Neues Design: ruhigere Farben, größere Schaltflächen und Eingabefelder, je Ansicht eine klare Hauptaktion; die Aktionen an Projekten sind jetzt immer sichtbar."),
+            ],
+        ),
+        (
             "1.5.7",
             vec![
                 l!("SSO-Profile: „Verbindung prüfen“ meldet nicht mehr ab, wenn das Gateway den Zugang ablehnt (401/403) – die Meldung sagt jetzt, dass die Freigabe fehlt."),
