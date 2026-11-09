@@ -17,7 +17,7 @@ pub struct Release {
 fn notes() -> Vec<(&'static str, Vec<String>)> {
     vec![
         (
-            "1.6.0",
+            "1.5.8",
             vec![
                 l!("Neues Design: ruhigere Farben, größere Schaltflächen und Eingabefelder, je Ansicht eine klare Hauptaktion; die Aktionen an Projekten sind jetzt immer sichtbar."),
             ],
