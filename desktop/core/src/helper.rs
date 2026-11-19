@@ -2,6 +2,8 @@
 //!
 //! ```text
 //! keyzapper-helper credential --profile <UUID>   # key on stdout (no newline), used as apiKeyHelper
+//! keyzapper-helper headers    --profile <UUID>   # like credential, as {"Authorization":"Bearer <key>"}: the
+//!                                                # headersHelper of a plugin marketplace on the gateway
 //! keyzapper-helper pool       --profile <UUID>   # like credential; once its budget is used up, the key with
 //!                                                # the most budget left on the same endpoint (hidden pool mode)
 //! keyzapper-helper store      --profile <UUID>   # key on stdin (never as argument)
@@ -64,9 +66,16 @@ impl HelperCommand {
     }
 
     pub fn run(&self, args: &[String], stdin: impl FnOnce() -> String) -> Output {
-        let commands = ["credential", "pool", "store", "status", "delete"];
+        let commands = ["credential", "headers", "pool", "store", "status", "delete"];
         if args.len() != 3 || args[1] != "--profile" || !commands.contains(&args[0].as_str()) {
-            return fail(ExitCode::Usage, l!("Aufruf: %@ credential|pool|store|status|delete --profile <UUID>", EXECUTABLE_NAME));
+            return fail(ExitCode::Usage, l!("Aufruf: %@ credential|headers|pool|store|status|delete --profile <UUID>", EXECUTABLE_NAME));
+        }
+        if args[0] == "headers" {
+            let mut output = self.run(&["credential".into(), args[1].clone(), args[2].clone()], stdin);
+            if output.exit_code == ExitCode::Ok {
+                output.stdout = serde_json::json!({ "Authorization": format!("Bearer {}", output.stdout) }).to_string();
+            }
+            return output;
         }
         let Some(id) = parse_id(&args[2]) else { return fail(ExitCode::UnknownProfile, l!("Ungültige Profil-ID: %@", args[2])) };
         let state = match self.metadata.load() {

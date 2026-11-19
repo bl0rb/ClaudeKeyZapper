@@ -404,6 +404,7 @@ impl Model {
             profile.oidc_client_id = managed.oidc_client_id.clone();
             profile.oidc_scope = managed.oidc_scope.clone();
             profile.oidc_token_type = managed.oidc_token_type;
+            profile.marketplace = managed.marketplace.clone();
             // Claude in Office and Claude Desktop's sign-in are IT's where it sets them; otherwise the user's own block
             // stays, so a managed profile can be tried with them (a block IT drops stays as the user's own until it is
             // switched off).
