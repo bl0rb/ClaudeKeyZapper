@@ -4,7 +4,7 @@
 
 use crate::claude_desktop::{BearerTokenType, CredentialKind, DesktopSso};
 use crate::claude_office::OfficeClient;
-use crate::models::{AuthType, OidcTokenType};
+use crate::models::{AuthType, OidcTokenType, PluginMarketplace};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -33,6 +33,7 @@ pub struct ManagedProfile {
     pub oidc_token_type: OidcTokenType,
     pub office: Option<OfficeClient>,
     pub claude_desktop: Option<DesktopSso>,
+    pub marketplace: Option<PluginMarketplace>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -209,6 +210,10 @@ fn managed_profile(dict: &Map<String, Value>) -> Option<ManagedProfile> {
         oidc_token_type,
         office: dict.get("Office").and_then(Value::as_object).map(office_client),
         claude_desktop: dict.get("ClaudeDesktop").and_then(Value::as_object).map(desktop_sso),
+        marketplace: dict.get("Marketplace").and_then(Value::as_object).map(|m| {
+            let trimmed = |key: &str| as_string(m.get(key)).map(|v| v.trim().to_string()).unwrap_or_default();
+            PluginMarketplace { name: trimmed("Name"), url: trimmed("URL") }
+        }),
     })
 }
 

@@ -53,6 +53,16 @@ impl OidcTokenType {
     }
 }
 
+/// A Claude Code plugin marketplace the profile's gateway serves behind the same credential as the model calls.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PluginMarketplace {
+    /// Name as in the marketplace's `marketplace.json` (`/plugin install <plugin>@<name>`).
+    pub name: String,
+    /// https URL of the `marketplace.json`.
+    pub url: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
@@ -93,6 +103,9 @@ pub struct Profile {
     /// Claude Desktop signs in itself with the gateway's OIDC client instead of using the helper; None = helper.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_desktop: Option<DesktopSso>,
+    /// Plugin marketplace of the gateway, written to Claude Code's `extraKnownMarketplaces`; None = none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marketplace: Option<PluginMarketplace>,
 }
 
 fn placeholder_credential() -> CredentialReference {
@@ -134,7 +147,7 @@ impl Profile {
         let credential = CredentialReference::for_id(&id);
         Self { id, name, endpoint, model_alias, opus_model: None, sonnet_model: None, haiku_model: None, environment: None, credential,
                auth_type: AuthType::ApiKey, oidc_issuer: None, oidc_client_id: None, oidc_scope: None,
-               oidc_token_type: OidcTokenType::Access, office: None, claude_desktop: None }
+               oidc_token_type: OidcTokenType::Access, office: None, claude_desktop: None, marketplace: None }
     }
 
     pub fn is_sso(&self) -> bool {
@@ -556,12 +569,15 @@ pub struct WorkspaceBinding {
     /// Models of one tenant of a multi-tenant gateway instead of the profile's own; None = as in the profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models: Option<ModelSelection>,
+    /// Exactly the `extraKnownMarketplaces` entries the app wrote, so only those are reverted.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub marketplaces: BTreeMap<String, serde_json::Value>,
 }
 
 impl WorkspaceBinding {
     pub fn new(path: String, profile_id: String) -> Self {
         Self { id: new_id(), path, profile_id, managed_values: BTreeMap::new(), git_exclude_entry: None, pooled: None,
-               mcp_server_ids: vec![], mcp_managed: BTreeMap::new(), mcp_git_exclude_entry: None, models: None }
+               mcp_server_ids: vec![], mcp_managed: BTreeMap::new(), mcp_git_exclude_entry: None, models: None, marketplaces: BTreeMap::new() }
     }
 
     pub fn is_pooled(&self) -> bool {
