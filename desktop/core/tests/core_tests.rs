@@ -520,6 +520,25 @@ fn marketplace_of_the_profile_is_written_and_reverted_with_the_binding() {
 }
 
 #[test]
+fn marketplace_needs_the_gateways_origin_and_keeps_a_foreign_entry_of_the_same_name() {
+    use keyzapper_core::models::PluginMarketplace;
+    let root = temp_dir("marketplace-guard");
+    let b = binder();
+    let mut profile = sample();
+    let endpoint = url::Url::parse(&profile.endpoint).unwrap();
+    let other_port = format!("https://{}:8443/marketplace.json", endpoint.host_str().unwrap());
+    profile.marketplace = Some(PluginMarketplace { name: "acme-plugins".into(), url: other_port });
+    assert!(b.desired_marketplaces(&root, &profile).is_empty());
+
+    let foreign = json!({"extraKnownMarketplaces": {"acme-plugins": {"source": {"source": "github", "repo": "a/b"}}}});
+    write(&local(&root), foreign.clone());
+    let url = format!("{}/marketplace.json", profile.endpoint.trim_end_matches('/'));
+    profile.marketplace = Some(PluginMarketplace { name: "acme-plugins".into(), url });
+    assert!(matches!(b.apply(&profile, &root, None, false, None), Err(Error::SettingsConflicts(_))));
+    assert_eq!(read(&local(&root)), foreign);
+}
+
+#[test]
 fn the_marketplace_block_of_a_managed_profile_is_read_trimmed() {
     let values = json!({"ManagedProfiles": [{"Name": "Firma", "Endpoint": "https://gw.example.test",
         "Marketplace": {"Name": " acme-plugins ", "URL": "https://gw.example.test/marketplace.json"}}]});

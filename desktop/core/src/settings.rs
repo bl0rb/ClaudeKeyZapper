@@ -3,7 +3,7 @@
 
 use crate::errors::{Error, Result, SettingsConflict};
 use crate::json::{self, Object};
-use crate::managed::{host_of, is_secure_endpoint};
+use crate::managed::is_secure_endpoint;
 use crate::models::{ModelSelection, Profile, WorkspaceBinding};
 use serde_json::{json, Value};
 use crate::{git, l, paths};
@@ -215,7 +215,7 @@ impl SettingsBinder {
         let Some(marketplace) = profile.marketplace.as_ref().filter(|_| !profile.is_subscription()) else { return BTreeMap::new() };
         let helper = format!("{} headers --profile {}", helper_invocation(&self.helper_path, root), profile.id);
         let name_ok = !marketplace.name.is_empty() && marketplace.name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
-        let url_ok = is_secure_endpoint(&marketplace.url) && host_of(&marketplace.url) == host_of(&profile.endpoint);
+        let url_ok = is_secure_endpoint(&marketplace.url) && same_origin(&marketplace.url, &profile.endpoint);
         let helper_ok = helper.len() <= 500 && helper.chars().all(|c| c == ' ' || c.is_ascii_graphic()) && !helper.contains("    ");
         if !(name_ok && url_ok && helper_ok) {
             return BTreeMap::new();
@@ -250,7 +250,8 @@ impl SettingsBinder {
         }
         let changed = with_lock(|| {
             mutate_settings(&local_settings_file(&root), |settings| {
-                let local = local_conflicts(settings, &desired, &previous_values);
+                let mut local = local_conflicts(settings, &desired, &previous_values);
+                local.extend(marketplace_conflicts(settings, &marketplaces, &previous_marketplaces));
                 if !local.is_empty() {
                     return Err(Error::SettingsConflicts(local));
                 }
@@ -521,6 +522,31 @@ fn apply_values(settings: &mut Object, desired: &BTreeMap<String, String>, previ
         if !desired.contains_key(key) && json::get_str(settings, key) == Some(value.as_str()) {
             json::remove(settings, key);
         }
+    }
+}
+
+/// Scheme, host and port must match, so the credential goes to no other service on the gateway's host.
+fn same_origin(a: &str, b: &str) -> bool {
+    match (url::Url::parse(a.trim()), url::Url::parse(b.trim())) {
+        (Ok(a), Ok(b)) => a.origin() == b.origin(),
+        _ => false,
+    }
+}
+
+/// An entry of the same name that someone else wrote (or an `extraKnownMarketplaces` that is no object) is not
+/// replaced silently; like the other keys, it has to be removed by hand.
+fn marketplace_conflicts(settings: &Object, desired: &BTreeMap<String, Value>, previous: &BTreeMap<String, Value>) -> Vec<SettingsConflict> {
+    const KEY: &str = "extraKnownMarketplaces";
+    let conflict = |key: String| SettingsConflict::blocking(l!("%@: „%@“ ist bereits mit einem anderen Wert gesetzt. Bitte manuell entfernen.", LOCAL_SETTINGS_PATH, key));
+    match settings.get(KEY) {
+        None => vec![],
+        Some(Value::Object(known)) => desired
+            .iter()
+            .filter(|(name, wanted)| known.get(*name).is_some_and(|current| current != *wanted && previous.get(*name) != Some(current)))
+            .map(|(name, _)| conflict(format!("{KEY}.{name}")))
+            .collect(),
+        Some(_) if desired.is_empty() => vec![],
+        Some(_) => vec![conflict(KEY.into())],
     }
 }
 
