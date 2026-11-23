@@ -3,7 +3,9 @@
 
 use crate::errors::{Error, Result, SettingsConflict};
 use crate::json::{self, Object};
+use crate::managed::is_secure_endpoint;
 use crate::models::{ModelSelection, Profile, WorkspaceBinding};
+use serde_json::{json, Value};
 use crate::{git, l, paths};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -205,6 +207,23 @@ impl SettingsBinder {
         values
     }
 
+    /// The `extraKnownMarketplaces` entry for the profile's plugin marketplace: Claude Code fetches it with the
+    /// headers `keyzapper-helper headers` prints, i.e. the profile's own credential. Nothing for a marketplace on
+    /// another host than the profile's endpoint (the credential must not leave the gateway), an unusable name or
+    /// URL, or a helper path beyond Claude Code's limits for `headersHelper` (500 printable ASCII characters).
+    pub fn desired_marketplaces(&self, root: &str, profile: &Profile) -> BTreeMap<String, Value> {
+        let Some(marketplace) = profile.marketplace.as_ref().filter(|_| !profile.is_subscription()) else { return BTreeMap::new() };
+        let helper = format!("{} headers --profile {}", helper_invocation(&self.helper_path, root), profile.id);
+        let name_ok = !marketplace.name.is_empty() && marketplace.name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+        let url_ok = is_secure_endpoint(&marketplace.url) && same_origin(&marketplace.url, &profile.endpoint);
+        let helper_ok = helper.len() <= 500 && helper.chars().all(|c| c == ' ' || c.is_ascii_graphic()) && !helper.contains("    ");
+        if !(name_ok && url_ok && helper_ok) {
+            return BTreeMap::new();
+        }
+        let entry = json!({ "source": { "source": "url", "url": marketplace.url, "headersHelper": helper }, "autoUpdate": true });
+        BTreeMap::from([(marketplace.name.clone(), entry)])
+    }
+
     // MARK: Apply / revert
 
     /// `selection` is the binding's tenant model set (None = as in the profile); callers re-applying a binding pass
@@ -221,6 +240,8 @@ impl SettingsBinder {
         }
         let desired = self.desired_values_for(&root, profile, pooled, selection);
         let previous_values = previous.map(|p| p.managed_values.clone()).unwrap_or_default();
+        let marketplaces = self.desired_marketplaces(&root, profile);
+        let previous_marketplaces = previous.map(|p| p.marketplaces.clone()).unwrap_or_default();
         let mut outer = self.environment_conflicts(&root, &BTreeMap::new());
         outer.extend(wsl_helper_conflict(&self.helper_path, &root));
         let blocking: Vec<_> = outer.iter().filter(|c| c.blocking).cloned().collect();
@@ -229,11 +250,13 @@ impl SettingsBinder {
         }
         let changed = with_lock(|| {
             mutate_settings(&local_settings_file(&root), |settings| {
-                let local = local_conflicts(settings, &desired, &previous_values);
+                let mut local = local_conflicts(settings, &desired, &previous_values);
+                local.extend(marketplace_conflicts(settings, &marketplaces, &previous_marketplaces));
                 if !local.is_empty() {
                     return Err(Error::SettingsConflicts(local));
                 }
                 apply_values(settings, &desired, &previous_values);
+                apply_marketplaces(settings, &marketplaces, &previous_marketplaces);
                 Ok(())
             })
         })?;
@@ -249,6 +272,7 @@ impl SettingsBinder {
             mcp_managed: previous.map(|p| p.mcp_managed.clone()).unwrap_or_default(),
             mcp_git_exclude_entry: previous.and_then(|p| p.mcp_git_exclude_entry.clone()),
             models: selection.filter(|_| !profile.is_subscription()).cloned(),
+            marketplaces,
         };
         Ok(ApplyResult { binding, changed, warnings: outer })
     }
@@ -260,6 +284,7 @@ impl SettingsBinder {
         if is_directory(&binding.path) {
             with_lock(|| mutate_settings(&local_settings_file(&binding.path), |s| {
                 kept = revert_values(s, &binding.managed_values);
+                apply_marketplaces(s, &BTreeMap::new(), &binding.marketplaces);
                 Ok(())
             }))?;
             if let Some(line) = &binding.git_exclude_entry {
@@ -282,12 +307,15 @@ impl SettingsBinder {
         }
         let desired = self.desired_values(profile, false, None);
         let previous_values = previous.map(|p| p.managed_values.clone()).unwrap_or_default();
+        let marketplaces = self.desired_marketplaces("", profile);
+        let previous_marketplaces = previous.map(|p| p.marketplaces.clone()).unwrap_or_default();
         let changed = with_lock(|| {
             mutate_settings(Path::new(&self.user_settings_path), |settings| {
                 if !settings.contains_key("$schema") {
                     settings.insert("$schema".into(), SCHEMA_URL.into());
                 }
                 apply_values(settings, &desired, &previous_values);
+                apply_marketplaces(settings, &marketplaces, &previous_marketplaces);
                 Ok(())
             })
         })?;
@@ -296,6 +324,7 @@ impl SettingsBinder {
             binding.id = previous.id.clone();
         }
         binding.managed_values = desired;
+        binding.marketplaces = marketplaces;
         Ok(ApplyResult { binding, changed, warnings: managed })
     }
 
@@ -304,6 +333,7 @@ impl SettingsBinder {
         let mut kept = Vec::new();
         with_lock(|| mutate_settings(Path::new(&self.user_settings_path), |s| {
             kept = revert_values(s, &binding.managed_values);
+            apply_marketplaces(s, &BTreeMap::new(), &binding.marketplaces);
             Ok(())
         }))?;
         kept.sort();
@@ -492,6 +522,48 @@ fn apply_values(settings: &mut Object, desired: &BTreeMap<String, String>, previ
         if !desired.contains_key(key) && json::get_str(settings, key) == Some(value.as_str()) {
             json::remove(settings, key);
         }
+    }
+}
+
+/// Scheme, host and port must match, so the credential goes to no other service on the gateway's host.
+fn same_origin(a: &str, b: &str) -> bool {
+    match (url::Url::parse(a.trim()), url::Url::parse(b.trim())) {
+        (Ok(a), Ok(b)) => a.origin() == b.origin(),
+        _ => false,
+    }
+}
+
+/// An entry of the same name that someone else wrote (or an `extraKnownMarketplaces` that is no object) is not
+/// replaced silently; like the other keys, it has to be removed by hand.
+fn marketplace_conflicts(settings: &Object, desired: &BTreeMap<String, Value>, previous: &BTreeMap<String, Value>) -> Vec<SettingsConflict> {
+    const KEY: &str = "extraKnownMarketplaces";
+    let conflict = |key: String| SettingsConflict::blocking(l!("%@: „%@“ ist bereits mit einem anderen Wert gesetzt. Bitte manuell entfernen.", LOCAL_SETTINGS_PATH, key));
+    match settings.get(KEY) {
+        None => vec![],
+        Some(Value::Object(known)) => desired
+            .iter()
+            .filter(|(name, wanted)| known.get(*name).is_some_and(|current| current != *wanted && previous.get(*name) != Some(current)))
+            .map(|(name, _)| conflict(format!("{KEY}.{name}")))
+            .collect(),
+        Some(_) if desired.is_empty() => vec![],
+        Some(_) => vec![conflict(KEY.into())],
+    }
+}
+
+/// Writes the app's `extraKnownMarketplaces` entries and removes the ones it wrote before and no longer wants,
+/// unless someone changed them since. Entries of other marketplaces stay as they are.
+fn apply_marketplaces(settings: &mut Object, desired: &BTreeMap<String, Value>, previous: &BTreeMap<String, Value>) {
+    const KEY: &str = "extraKnownMarketplaces";
+    if desired.is_empty() && previous.is_empty() {
+        return;
+    }
+    let mut known = settings.get(KEY).and_then(Value::as_object).cloned().unwrap_or_default();
+    known.retain(|name, entry| desired.contains_key(name) || previous.get(name) != Some(&*entry));
+    known.extend(desired.iter().map(|(name, entry)| (name.clone(), entry.clone())));
+    if known.is_empty() {
+        settings.remove(KEY);
+    } else {
+        settings.insert(KEY.into(), Value::Object(known));
     }
 }
 

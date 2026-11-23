@@ -479,6 +479,74 @@ fn helper_returns_only_requested_key_and_never_falls_back() {
 }
 
 #[test]
+fn helper_prints_the_credential_as_marketplace_headers() {
+    let dir = temp_dir("helper-headers");
+    let h = helper(&dir, BTreeMap::new());
+    h.metadata.save(&AppState { profiles: vec![sample()], ..AppState::default() }).unwrap();
+    let missing = h.run(&args("headers", ALPHA), String::new);
+    assert_eq!((missing.exit_code, missing.stdout.as_str()), (ExitCode::MissingCredential, ""));
+    h.run(&args("store", ALPHA), || "sk-al\"pha".into());
+    let out = h.run(&args("headers", ALPHA), String::new);
+    assert_eq!(out.exit_code, ExitCode::Ok);
+    assert_eq!(serde_json::from_str::<Value>(&out.stdout).unwrap(), json!({"Authorization": "Bearer sk-al\"pha"}));
+}
+
+#[test]
+fn marketplace_of_the_profile_is_written_and_reverted_with_the_binding() {
+    use keyzapper_core::models::PluginMarketplace;
+    let root = temp_dir("marketplace");
+    write(&local(&root), json!({"extraKnownMarketplaces": {"other": {"source": {"source": "github", "repo": "a/b"}}}}));
+    let b = binder();
+    let marketplace = |url: &str| Some(PluginMarketplace { name: "acme-plugins".into(), url: url.into() });
+    let mut profile = sample();
+    let url = format!("{}/marketplace.json", profile.endpoint.trim_end_matches('/'));
+    profile.marketplace = marketplace(&url);
+
+    let applied = b.apply(&profile, &root, None, false, None).unwrap().binding;
+    let source = &read(&local(&root))["extraKnownMarketplaces"]["acme-plugins"]["source"];
+    assert_eq!((source["source"].as_str(), source["url"].as_str()), (Some("url"), Some(url.as_str())));
+    assert_eq!(source["headersHelper"].as_str(), read(&local(&root))["apiKeyHelper"].as_str().map(|h| h.replace(" credential ", " headers ")).as_deref());
+
+    // The credential never goes to another host than the gateway; dropping the marketplace removes only the own entry.
+    profile.marketplace = marketplace("https://elsewhere.example.test/marketplace.json");
+    let dropped = b.apply(&profile, &root, Some(&applied), false, None).unwrap().binding;
+    assert!(dropped.marketplaces.is_empty());
+    assert_eq!(read(&local(&root))["extraKnownMarketplaces"], json!({"other": {"source": {"source": "github", "repo": "a/b"}}}));
+
+    profile.marketplace = marketplace(&url);
+    let again = b.apply(&profile, &root, Some(&dropped), false, None).unwrap().binding;
+    b.revert(&again).unwrap();
+    assert_eq!(read(&local(&root)), json!({"extraKnownMarketplaces": {"other": {"source": {"source": "github", "repo": "a/b"}}}}));
+}
+
+#[test]
+fn marketplace_needs_the_gateways_origin_and_keeps_a_foreign_entry_of_the_same_name() {
+    use keyzapper_core::models::PluginMarketplace;
+    let root = temp_dir("marketplace-guard");
+    let b = binder();
+    let mut profile = sample();
+    let endpoint = url::Url::parse(&profile.endpoint).unwrap();
+    let other_port = format!("https://{}:8443/marketplace.json", endpoint.host_str().unwrap());
+    profile.marketplace = Some(PluginMarketplace { name: "acme-plugins".into(), url: other_port });
+    assert!(b.desired_marketplaces(&root, &profile).is_empty());
+
+    let foreign = json!({"extraKnownMarketplaces": {"acme-plugins": {"source": {"source": "github", "repo": "a/b"}}}});
+    write(&local(&root), foreign.clone());
+    let url = format!("{}/marketplace.json", profile.endpoint.trim_end_matches('/'));
+    profile.marketplace = Some(PluginMarketplace { name: "acme-plugins".into(), url });
+    assert!(matches!(b.apply(&profile, &root, None, false, None), Err(Error::SettingsConflicts(_))));
+    assert_eq!(read(&local(&root)), foreign);
+}
+
+#[test]
+fn the_marketplace_block_of_a_managed_profile_is_read_trimmed() {
+    let values = json!({"ManagedProfiles": [{"Name": "Firma", "Endpoint": "https://gw.example.test",
+        "Marketplace": {"Name": " acme-plugins ", "URL": "https://gw.example.test/marketplace.json"}}]});
+    let marketplace = ManagedConfig::from_values(values.as_object().unwrap()).profiles.remove(0).marketplace.unwrap();
+    assert_eq!((marketplace.name.as_str(), marketplace.url.as_str()), ("acme-plugins", "https://gw.example.test/marketplace.json"));
+}
+
+#[test]
 fn helper_respects_gateway_allowlist() {
     let dir = temp_dir("helper");
     let mut h = helper(&dir, BTreeMap::new());

@@ -86,7 +86,7 @@
  "Art": "Type",
  "Auf diesem System nicht unterstützt.": "Not supported on this system.",
  "Aufgaben und Projekte": "Tasks and projects",
- "Aufruf: %@ credential|pool|store|status|delete --profile <UUID>": "Usage: %@ credential|pool|store|status|delete --profile <UUID>",
+ "Aufruf: %@ credential|headers|pool|store|status|delete --profile <UUID>": "Usage: %@ credential|headers|pool|store|status|delete --profile <UUID>",
  "Ausgelassen, weil ein eigener Server so heißt: %@": "Left out because one of your own servers has this name: %@",
  "Auswählen …": "Choose…",
  "Automatisch (vom Gateway)": "Automatic (from the gateway)",
