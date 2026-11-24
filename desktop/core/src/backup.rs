@@ -4,8 +4,7 @@
 
 use crate::l;
 use crate::models::AppState;
-use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
-use aes_gcm::aead::rand_core::RngCore;
+use aes_gcm::aead::{Aead, Generate, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -79,8 +78,7 @@ pub fn seal(payload: &BackupPayload, password: &str, iterations: u32) -> Result<
     if password.nfc().count() < MINIMUM_PASSWORD_LENGTH {
         return Err(BackupError::PasswordTooShort);
     }
-    let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
+    let salt = <[u8; 16]>::generate();
     let mut envelope = Envelope {
         cipher: "aes-256-gcm".into(),
         format: FORMAT.into(),
@@ -91,8 +89,8 @@ pub fn seal(payload: &BackupPayload, password: &str, iterations: u32) -> Result<
         version: 1,
     };
     let key = derive_key(password, &salt, iterations);
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(key));
+    let nonce = Nonce::generate();
     let plaintext = serde_json::to_vec(payload).map_err(|_| BackupError::Corrupt)?;
     let aad = envelope.associated_data();
     let ciphertext = cipher.encrypt(&nonce, Payload { msg: &plaintext, aad: aad.as_bytes() }).map_err(|_| BackupError::Corrupt)?;
@@ -119,11 +117,12 @@ pub fn open(data: &[u8], password: &str) -> Result<BackupPayload, BackupError> {
         return Err(BackupError::WrongPasswordOrCorrupt);
     }
     let key = derive_key(password, &salt, envelope.iterations);
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(key));
     let (nonce, ciphertext) = sealed.split_at(12);
+    let nonce = Nonce::try_from(nonce).map_err(|_| BackupError::WrongPasswordOrCorrupt)?;
     let aad = envelope.associated_data();
     let plaintext = cipher
-        .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad: aad.as_bytes() })
+        .decrypt(&nonce, Payload { msg: ciphertext, aad: aad.as_bytes() })
         .map_err(|_| BackupError::WrongPasswordOrCorrupt)?;
     let mut payload: BackupPayload = serde_json::from_slice(&plaintext).map_err(|_| BackupError::Corrupt)?;
     payload.state = payload.state.normalized();

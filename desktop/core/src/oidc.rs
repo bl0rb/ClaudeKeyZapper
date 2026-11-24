@@ -6,8 +6,7 @@ use crate::errors::{Error, Result};
 use crate::models::{OidcTokenType, Profile};
 use crate::tokens::{TokenSet, TokenStore};
 use crate::{gateway, l};
-use aes_gcm::aead::rand_core::RngCore;
-use aes_gcm::aead::OsRng;
+use aes_gcm::aead::Generate;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
 use base64::Engine;
 use serde_json::Value;
@@ -69,10 +68,9 @@ pub fn discover(issuer: &str) -> Result<Discovery> {
     Ok(Discovery { authorization_endpoint, token_endpoint })
 }
 
-fn random_b64(bytes: usize) -> String {
-    let mut buf = vec![0u8; bytes];
-    OsRng.fill_bytes(&mut buf);
-    B64URL.encode(buf)
+/// `N` random bytes from the system's CSPRNG, base64url-encoded.
+fn random_b64<const N: usize>() -> String {
+    B64URL.encode(<[u8; N]>::generate())
 }
 
 /// S256 code challenge of a PKCE verifier.
@@ -82,7 +80,7 @@ pub fn pkce_challenge(verifier: &str) -> String {
 
 /// (verifier, challenge)
 pub fn new_pkce() -> (String, String) {
-    let verifier = random_b64(32);
+    let verifier = random_b64::<32>();
     let challenge = pkce_challenge(&verifier);
     (verifier, challenge)
 }
@@ -210,7 +208,7 @@ pub fn login(profile: &Profile, store: &TokenStore, open_browser: impl FnOnce(&s
     listener.set_nonblocking(true)?;
     let redirect_uri = format!("http://127.0.0.1:{}/callback", listener.local_addr()?.port());
     let (verifier, challenge) = new_pkce();
-    let state = random_b64(16);
+    let state = random_b64::<16>();
     let mut auth = validate_url(&discovery.authorization_endpoint)?;
     auth.query_pairs_mut()
         .append_pair("response_type", "code")
