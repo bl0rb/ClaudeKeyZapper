@@ -24,6 +24,7 @@
       },
       {
         "label": "usage",
+        "create": false,
         "url": "usage.html",
         "title": "KeyZapper",
         "width": 340,
