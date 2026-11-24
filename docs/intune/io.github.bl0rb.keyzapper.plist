@@ -41,6 +41,13 @@
       <key>CLAUDE_CODE_API_KEY_HELPER_TTL_MS</key>
       <string>900000</string>
     </dict>
+    <key>Marketplace</key>
+    <dict>
+      <key>Name</key>
+      <string>firma-plugins</string>
+      <key>URL</key>
+      <string>https://litellm.firma.example/claude-plugins/marketplace.json</string>
+    </dict>
     <key>ClaudeDesktop</key>
     <dict>
       <key>GatewayURL</key>
