@@ -1011,10 +1011,18 @@ fn main() {
             let version = (!cfg!(debug_assertions)).then(|| app.package_info().version.to_string());
             let mut model = Model::load(version);
             model.vibrancy = app.get_webview_window("main").is_some_and(|w| apply_window_material(&w, NSVisualEffectMaterial::Sidebar, None));
-            if let Some(popover) = app.get_webview_window(tray::POPOVER) {
-                apply_window_material(&popover, NSVisualEffectMaterial::Popover, Some(12.0));
-            }
             app.manage(Shared(Mutex::new(model)));
+            // The popover is created only now (`"create": false` in tauri.conf.json): on Windows, building a WebView2
+            // window processes messages, so the main page's first commands would run before `manage` and panic.
+            match app.config().app.windows.iter().find(|w| w.label == tray::POPOVER) {
+                Some(config) => match tauri::WebviewWindowBuilder::from_config(app.handle(), config).and_then(|b| b.build()) {
+                    Ok(popover) => {
+                        apply_window_material(&popover, NSVisualEffectMaterial::Popover, Some(12.0));
+                    }
+                    Err(e) => eprintln!("KeyZapper: usage popover unavailable: {e}"),
+                },
+                None => eprintln!("KeyZapper: usage popover missing in tauri.conf.json"),
+            }
             if let Err(e) = tray::create(app.handle()) {
                 eprintln!("KeyZapper: tray icon unavailable: {e}");
             }
